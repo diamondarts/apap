@@ -1,0 +1,1680 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070426" VERN="000011" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070426" STIME="113147" IDATE="20070426" ITIME="113147" UCCHECK="X">
+ <textPool>
+  <language SPRAS="E">
+   <textElement ID="R" ENTRY="Generate an XML file of a development class" LENGTH="43 "/>
+   <textElement ID="S" KEY="P_FILE" ENTRY="        Download to" LENGTH="19 "/>
+   <textElement ID="S" KEY="P_LANGU" ENTRY="        Language" LENGTH="16 "/>
+   <textElement ID="S" KEY="P_SYSCNT" ENTRY="        Include system table content" LENGTH="36 "/>
+   <textElement ID="S" KEY="S_DEVCLS" ENTRY="D       Package" LENGTH="15 "/>
+   <textElement ID="S" KEY="S_OBJECT" ENTRY="D       Object Type" LENGTH="19 "/>
+  </language>
+ </textPool>
+ <source>*&amp;---------------------------------------------------------------------*
+*&amp; Report  ZAPAP                                                       *
+*&amp;                                                                     *
+*&amp;---------------------------------------------------------------------*
+*
+* APAP - Generate javadoc-style documentation for SAP repository objects
+* Copyright (C) 2007  Björn Harmen Gerth
+*
+* This program is free software; you can redistribute it and/or
+* modify it under the terms of the GNU General Public License
+* as published by the Free Software Foundation; either version 2
+* of the License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the
+* Free Software Foundation, Inc.
+* 51 Franklin Street
+* Fifth Floor
+* Boston, MA 02110-1301
+* USA
+*&amp;---------------------------------------------------------------------*
+
+REPORT zapap NO STANDARD PAGE HEADING LINE-SIZE 255.
+
+DEFINE transl.
+  if ic_name eq &amp;1.
+    check &amp;2 ne space.
+    ec_name = &amp;2.
+  endif.
+END-OF-DEFINITION.
+
+TYPES:
+  BEGIN OF ys_selopt,
+    sign   TYPE bapisign,
+    option TYPE bapioption,
+    low    TYPE tadir-object,
+    high   TYPE tadir-object,
+  END OF ys_selopt,
+  yl_selopt TYPE TABLE OF ys_selopt.
+
+*----------------------------------------------------------------------*
+*       CLASS ycl_generator DEFINITION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS ycl_generator DEFINITION.
+
+  PUBLIC SECTION.
+    TYPE-POOLS:
+      abap,
+      seoc,
+      seor,
+      seos.
+
+    DATA:
+      mt_output TYPE sotr_texts,
+      mr_output TYPE REF TO string,
+      mt_tags   TYPE sotr_texts,
+      mc_langu  TYPE sy-langu,
+      mt_selopt TYPE yl_selopt.
+
+    METHODS:
+      constructor
+        IMPORTING
+          ic_langu  TYPE sy-langu
+          it_selopt TYPE yl_selopt OPTIONAL,
+     process_clas
+       IMPORTING ic_name TYPE c,
+     process_devc
+       IMPORTING ic_name TYPE c,
+     process_dtel
+       IMPORTING ic_name TYPE c,
+     process_doma
+       IMPORTING ic_name TYPE c,
+     process_fugr
+       IMPORTING ic_name TYPE c,
+     process_func
+       IMPORTING ic_name TYPE c,
+     process_enqu
+       IMPORTING ic_name TYPE c,
+     process_intf
+       IMPORTING ic_name TYPE c,
+     process_tabl
+       IMPORTING ic_name TYPE c,
+     process_ttyp
+       IMPORTING ic_name TYPE c.
+
+  PROTECTED SECTION.
+    TYPES BEGIN OF ys_attrdescr.
+    INCLUDE TYPE abap_attrdescr.
+    TYPES description TYPE string.
+    TYPES END OF ys_attrdescr.
+    TYPES BEGIN OF ys_methdescr.
+    INCLUDE TYPE abap_methdescr.
+    TYPES description TYPE string.
+    TYPES END OF ys_methdescr.
+    TYPES BEGIN OF ys_parmdescr.
+    INCLUDE TYPE abap_parmdescr.
+    TYPES description TYPE string.
+    TYPES END OF ys_parmdescr.
+    TYPES BEGIN OF ys_excpdescr.
+    INCLUDE TYPE abap_excpdescr.
+    TYPES description TYPE string.
+    TYPES END OF ys_excpdescr.
+    TYPES BEGIN OF ys_evntdescr.
+    INCLUDE TYPE abap_evntdescr.
+    TYPES description TYPE string.
+    TYPES END OF ys_evntdescr.
+
+    METHODS:
+      process_object_body
+        IMPORTING ic_name  TYPE c,
+      process_parameter
+        IMPORTING
+          ic_function  TYPE c
+          ic_tag       TYPE string
+          it_docu      TYPE rsfb_fdo
+          it_parameter TYPE table
+          ic_parmkind  TYPE funct-kind DEFAULT &apos;P&apos;
+        CHANGING
+          cs_wa        TYPE any,
+      process_documentation
+        IMPORTING
+          ic_name  TYPE c
+          ic_dokid TYPE c
+          ic_type  TYPE dokhl-typ DEFAULT &apos;E&apos;,
+      get_attribute_value
+        IMPORTING
+          ic_name  TYPE any
+          i_field  TYPE any
+        RETURNING
+          value(ec_value) TYPE string,
+      get_attribute_name
+        IMPORTING ic_name TYPE c
+        RETURNING value(ec_name) TYPE string,
+      write_attribute
+        IMPORTING ic_name TYPE c i_field TYPE any
+        RETURNING value(ec_attribute) TYPE string,
+      write_attributes
+        IMPORTING is_struc TYPE any
+        RETURNING value(ec_attr) TYPE string,
+      end_tag,
+      get_tag RETURNING value(ec_tag) TYPE string,
+      write_tag
+        IMPORTING
+          ic_tag   TYPE string
+          is_struc TYPE any OPTIONAL
+          ib_end   TYPE abap_bool DEFAULT abap_true,
+      write_table
+        IMPORTING
+          ic_tag   TYPE string
+          it_table TYPE ANY TABLE,
+      get_table_content
+        IMPORTING ic_name TYPE c,
+      get_superclass
+        IMPORTING ic_classname TYPE any
+        RETURNING value(ec_superclass) TYPE seoclsname.
+ENDCLASS.                    &quot;ycl_generator DEFINITION
+
+DATA:
+  gc_devc      TYPE tdevc-devclass,
+  gc_object    TYPE tadir-object.
+
+SELECT-OPTIONS:
+* text from ddic
+  s_devcls     FOR gc_devc,
+* text from ddic
+  s_object     FOR gc_object.
+PARAMETERS:
+* text: &apos;Language&apos;
+  p_langu      TYPE sy-langu  DEFAULT sy-langu,
+* text: &apos;Include system table content&apos;
+  p_syscnt     TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Download to&apos;
+  p_file       TYPE rlgrap-filename.
+DATA:
+  gr_generator TYPE REF TO ycl_generator,
+  gs_selopt    LIKE LINE OF s_object,
+  gc_file      TYPE string,
+  gc_path      TYPE string,
+  gc_fullpath  TYPE string,
+  gi_action    TYPE i.
+FIELD-SYMBOLS:
+  &lt;t&gt;          LIKE LINE OF gr_generator-&gt;mt_output.
+
+
+INITIALIZATION.
+* Add all supported repository objects here
+  gs_selopt-sign   = &apos;I&apos;.
+  gs_selopt-option = &apos;EQ&apos;.
+  gs_selopt-low    = &apos;CLAS&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;DOMA&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;DTEL&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;ENQU&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;FUGR&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;INTF&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;TABL&apos;.
+  APPEND gs_selopt TO s_object.
+  gs_selopt-low    = &apos;TTYP&apos;.
+  APPEND gs_selopt TO s_object.
+
+*-----------------------------------------------------------------------
+* Display a file picker window
+*-----------------------------------------------------------------------
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+
+  CALL METHOD cl_gui_frontend_services=&gt;file_save_dialog
+    EXPORTING
+*      WINDOW_TITLE         =
+       default_extension    = &apos;xml&apos;
+*      DEFAULT_FILE_NAME    =
+       file_filter          = &apos;*.xml&apos;
+*      INITIAL_DIRECTORY    =
+*      WITH_ENCODING        =
+*      PROMPT_ON_OVERWRITE  = &apos;X&apos;
+    CHANGING
+      filename             = gc_file
+      path                 = gc_path
+      fullpath             = gc_fullpath
+      user_action          = gi_action
+    EXCEPTIONS
+      OTHERS               = 1.
+  IF sy-subrc NE 0.
+    WRITE: / &apos;An error has occured picking a file&apos;.
+    EXIT.
+  ENDIF.
+
+  IF gi_action EQ cl_gui_frontend_services=&gt;action_ok.
+    p_file = gc_fullpath.
+  ENDIF.
+
+
+
+START-OF-SELECTION.
+
+  CREATE OBJECT gr_generator EXPORTING ic_langu  = p_langu
+                                       it_selopt = s_object[].
+
+  APPEND &apos;&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&apos;
+  TO gr_generator-&gt;mt_output.
+  APPEND &apos;&lt;application name=&quot;Ebydos Process Director&quot;&gt;&apos;
+  TO gr_generator-&gt;mt_output.
+
+  SELECT devclass FROM tdevc
+                  INTO gc_devc
+                 WHERE devclass IN s_devcls
+                   AND mainpack = abap_true.
+
+    CALL METHOD gr_generator-&gt;process_devc
+      EXPORTING
+        ic_name = gc_devc.
+  ENDSELECT.
+
+  APPEND &apos;&lt;/application&gt;&apos; TO gr_generator-&gt;mt_output.
+
+
+  LOOP AT gr_generator-&gt;mt_output ASSIGNING &lt;t&gt;.
+    WRITE / &lt;t&gt;.
+  ENDLOOP.
+
+  IF NOT p_file IS INITIAL.
+    gc_fullpath = p_file.
+    CALL METHOD cl_gui_frontend_services=&gt;gui_download
+      EXPORTING
+        filename = gc_fullpath
+      CHANGING
+        data_tab = gr_generator-&gt;mt_output
+      EXCEPTIONS
+        OTHERS   = 0.
+  ENDIF.
+
+
+
+*----------------------------------------------------------------------*
+*       CLASS ycl_generator IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS ycl_generator IMPLEMENTATION.
+
+  METHOD constructor.
+
+    FIELD-SYMBOLS &lt;s&gt; LIKE LINE OF mt_selopt.
+
+    mc_langu  = ic_langu.
+    mt_selopt = it_selopt.
+
+*   The TADIR entry of a package XY contains itself as development class
+*   =&gt; endless loop, so exclude package from selection
+    INSERT INITIAL LINE INTO mt_selopt INDEX 1 ASSIGNING &lt;s&gt;.
+    &lt;s&gt;-sign   = &apos;E&apos;.
+    &lt;s&gt;-option = &apos;EQ&apos;.
+    &lt;s&gt;-low    = &apos;DEVC&apos;.
+
+  ENDMETHOD.                    &quot;constructor
+
+  METHOD process_clas.
+
+    DATA:
+      BEGIN OF ls_spr,
+        clsname     TYPE seoclskey-clsname,
+*       This will be useful for sorting the superclass by distance
+*       to the actual class
+        dist        TYPE sy-index,
+      END OF ls_spr,
+      ls_clskey     TYPE seoclskey,
+      ls_class      TYPE seoc_class_r,
+      lt_subclasses TYPE seor_inheritance_keys.
+
+    ls_clskey-clsname = ic_name.
+    CALL FUNCTION &apos;SEO_CLASS_READ&apos;
+      EXPORTING
+        clskey          = ls_clskey
+        version         = seoc_version_active
+        master_language = space
+        modif_language  = mc_langu
+      IMPORTING
+        class           = ls_class.
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;class&apos;
+        is_struc = ls_class
+        ib_end   = abap_false.
+
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;CL&apos;.
+
+    ls_spr-clsname = ic_name.
+    DO.
+      ls_spr-dist = sy-index.
+      ls_spr-clsname = get_superclass( ls_spr-clsname ).
+      IF ls_spr-clsname IS INITIAL. EXIT. ENDIF.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;superclass&apos;
+          is_struc = ls_spr.
+    ENDDO.
+
+    CALL FUNCTION &apos;SEO_CLASS_GET_ALL_SUBS&apos;
+      EXPORTING
+        clskey  = ls_clskey
+      IMPORTING
+        inhkeys = lt_subclasses
+      EXCEPTIONS
+        OTHERS  = 0.
+    CALL METHOD write_table
+      EXPORTING
+        ic_tag   = &apos;subclass&apos;
+        it_table = lt_subclasses.
+
+    CALL METHOD process_object_body
+      EXPORTING
+        ic_name = ic_name.
+
+    CALL METHOD end_tag. &quot;class
+
+  ENDMETHOD.                    &quot;process_clas
+
+
+
+
+  METHOD process_devc.
+
+    DATA:
+      ls_tadir TYPE tadir,
+      ls_tdevc TYPE v_rdevct,
+      lc_devclass TYPE tdevc-devclass.
+
+
+    SELECT SINGLE * FROM v_rdevct
+                    INTO ls_tdevc
+                   WHERE devclass EQ ic_name
+                     AND spras    EQ mc_langu.
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;package&apos;
+        is_struc = ls_tdevc
+        ib_end   = abap_false.
+
+
+*   Process subpackages
+    SELECT devclass FROM tdevc
+                    INTO lc_devclass
+                   WHERE parentcl EQ ic_name.
+      CALL METHOD process_devc
+        EXPORTING
+          ic_name = lc_devclass.
+    ENDSELECT.
+
+*   Process all contained repository objects
+    SELECT * FROM tadir
+             INTO ls_tadir
+            WHERE object   IN mt_selopt
+              AND devclass EQ ic_name.
+      CASE ls_tadir-object.
+        WHEN &apos;CLAS&apos;.
+          CALL METHOD process_clas
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;DOMA&apos;.
+          CALL METHOD process_doma
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;DTEL&apos;.
+          CALL METHOD process_dtel
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;ENQU&apos;.
+          CALL METHOD process_enqu
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;FUGR&apos;.
+          CALL METHOD process_fugr
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;INTF&apos;.
+          CALL METHOD process_intf
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;TABL&apos;.
+          CALL METHOD process_tabl
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+        WHEN &apos;TTYP&apos;.
+          CALL METHOD process_ttyp
+            EXPORTING
+              ic_name = ls_tadir-obj_name.
+      ENDCASE.
+    ENDSELECT.
+
+    CALL METHOD end_tag.
+
+  ENDMETHOD.                    &quot;process_package
+
+
+  METHOD process_doma.
+
+    DATA:
+      lc_name TYPE ddobjname,
+      ls_dd01 TYPE dd01v,
+      lt_dd07 TYPE TABLE OF dd07v.
+
+    lc_name = ic_name.
+    CALL FUNCTION &apos;DDIF_DOMA_GET&apos;
+      EXPORTING
+        name      = lc_name
+        langu     = mc_langu
+      IMPORTING
+        dd01v_wa  = ls_dd01
+      TABLES
+        dd07v_tab = lt_dd07
+      EXCEPTIONS
+        OTHERS    = 1.
+    CHECK: sy-subrc EQ 0,
+           NOT ls_dd01 IS INITIAL.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;domain&apos;
+        is_struc = ls_dd01
+        ib_end   = abap_false.
+    CALL METHOD write_table
+      EXPORTING
+        ic_tag   = &apos;fixed-value&apos;
+        it_table = lt_dd07.
+
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;DO&apos;
+        ic_type  = &apos;T&apos;.
+
+    CALL METHOD end_tag.
+
+  ENDMETHOD.                    &quot;process_domain
+
+
+  METHOD process_dtel.
+
+    DATA:
+      lc_name TYPE ddobjname,
+      ls_dd04 TYPE dd04v.
+
+    lc_name = ic_name.
+    CALL FUNCTION &apos;DDIF_DTEL_GET&apos;
+      EXPORTING
+        name                = lc_name
+       langu               = mc_langu
+     IMPORTING
+       dd04v_wa            = ls_dd04
+*     TPARA_WA            =
+     EXCEPTIONS
+       OTHERS              = 1.
+    CHECK: sy-subrc EQ 0,
+           NOT ls_dd04 IS INITIAL.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;dataelem&apos;
+        is_struc = ls_dd04
+        ib_end   = abap_false.
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;DE&apos;.
+    CALL METHOD end_tag.
+
+
+  ENDMETHOD.                    &quot;process_dataelem
+
+
+  METHOD process_enqu.
+
+    DATA:
+      lc_name    TYPE ddobjname,
+      ls_dd25    TYPE dd25v,
+      lt_dd26    TYPE TABLE OF dd26e,
+      lt_dd27    TYPE TABLE OF dd27p,
+      lt_dden    TYPE TABLE OF ddena.
+
+    lc_name = ic_name.
+    CALL FUNCTION &apos;DDIF_ENQU_GET&apos;
+      EXPORTING
+        name      = lc_name
+        langu     = mc_langu
+      IMPORTING
+        dd25v_wa  = ls_dd25
+      TABLES
+        dd26e_tab = lt_dd26
+        dd27p_tab = lt_dd27
+        ddena_tab = lt_dden
+      EXCEPTIONS
+        OTHERS    = 1.
+    CHECK: sy-subrc EQ 0,
+           NOT ls_dd25 IS INITIAL.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;enqueue-object&apos;
+        is_struc = ls_dd25
+        ib_end   = abap_false.
+
+    CALL METHOD write_table EXPORTING ic_tag = :
+      &apos;base-table&apos;     it_table = lt_dd26,
+      &apos;lock-parameter&apos; it_table = lt_dd27,
+      &apos;lock-argument&apos;  it_table = lt_dden.
+
+    CALL METHOD end_tag.
+
+  ENDMETHOD.                    &quot;process_enqu
+
+
+
+  METHOD process_fugr.
+
+    DATA:
+      ls_libg  TYPE info_fugrz,
+      lt_funcs TYPE TABLE OF rs38l_incl.
+    FIELD-SYMBOLS:
+      &lt;f&gt;      LIKE LINE OF lt_funcs.
+
+    SELECT SINGLE * FROM info_fugrz INTO ls_libg WHERE area EQ ic_name.
+    CHECK sy-subrc EQ 0.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;function-group&apos;
+        is_struc = ls_libg
+        ib_end   = abap_false.
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;RE&apos;.
+
+    CALL FUNCTION &apos;RS_FUNCTION_POOL_CONTENTS&apos;
+      EXPORTING
+        function_pool = ls_libg-area
+      TABLES
+        functab       = lt_funcs
+      EXCEPTIONS
+        OTHERS        = 0.
+
+    LOOP AT lt_funcs ASSIGNING &lt;f&gt;.
+      CALL METHOD process_func
+        EXPORTING
+          ic_name = &lt;f&gt;-funcname.
+    ENDLOOP.
+
+
+    CALL METHOD end_tag.
+
+
+  ENDMETHOD.                    &quot;process_fugr
+
+
+
+  METHOD process_func.
+
+    DATA:
+      ls_func   TYPE v_fdirt,
+      lt_docu   TYPE TABLE OF funct,
+      lt_exc    TYPE TABLE OF rsexc,
+      lt_exp    TYPE TABLE OF rsexp,
+      lt_imp    TYPE TABLE OF rsimp,
+      lt_cha    TYPE TABLE OF rscha,
+      lt_tbl    TYPE TABLE OF rstbl,
+      BEGIN OF ls_exc.
+    INCLUDE TYPE rsexc.
+    DATA:
+        description TYPE funct-stext,
+      END OF ls_exc,
+      BEGIN OF ls_exp.
+    INCLUDE TYPE rsexp.
+    DATA:
+        description TYPE funct-stext,
+      END OF ls_exp,
+      BEGIN OF ls_imp.
+    INCLUDE TYPE rsimp.
+    DATA:
+        description TYPE funct-stext,
+      END OF ls_imp,
+      BEGIN OF ls_cha.
+    INCLUDE TYPE rscha.
+    DATA:
+        description TYPE funct-stext,
+      END OF ls_cha,
+      BEGIN OF ls_tbl.
+    INCLUDE TYPE rstbl.
+    DATA:
+        description TYPE funct-stext,
+      END OF ls_tbl.
+
+*      lt_params TYPE TABLE OF rfc_funint.
+
+    SELECT SINGLE * FROM v_fdirt
+                    INTO ls_func
+                   WHERE funcname EQ ic_name
+                     AND spras    EQ mc_langu.
+    CHECK sy-subrc EQ 0.
+
+    CALL FUNCTION &apos;FUNCTION_IMPORT_DOKU&apos;
+      EXPORTING
+        funcname           = ic_name
+        language           = mc_langu
+      TABLES
+        dokumentation      = lt_docu
+        exception_list     = lt_exc
+        export_parameter   = lt_exp
+        import_parameter   = lt_imp
+        changing_parameter = lt_cha
+        tables_parameter   = lt_tbl
+      EXCEPTIONS
+        OTHERS             = 0.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;function-module&apos;
+        is_struc = ls_func
+        ib_end   = abap_false.
+
+    CALL METHOD process_parameter
+      EXPORTING
+        ic_function  = ls_func-funcname
+        it_docu      = lt_docu
+        :
+        it_parameter = lt_imp
+        ic_tag       = &apos;importing&apos;
+      CHANGING
+        cs_wa        = ls_imp,
+        it_parameter = lt_exp
+        ic_tag       = &apos;exporting&apos;
+      CHANGING
+        cs_wa        = ls_exp,
+        it_parameter = lt_cha
+        ic_tag       = &apos;changing&apos;
+      CHANGING
+        cs_wa        = ls_cha,
+        it_parameter = lt_tbl
+        ic_tag       = &apos;tables&apos;
+      CHANGING
+        cs_wa        = ls_tbl,
+        it_parameter = lt_exc
+        ic_parmkind  = &apos;X&apos;
+        ic_tag       = &apos;exception&apos;
+      CHANGING
+        cs_wa        = ls_exc.
+
+
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;FU&apos;
+        ic_type  = &apos;T&apos;.
+
+    CALL METHOD end_tag.
+
+
+  ENDMETHOD.                    &quot;process_func
+
+  METHOD process_parameter.
+
+    DATA lc_dok TYPE dokhl-object.
+    FIELD-SYMBOLS:
+      &lt;docu&gt; LIKE LINE OF it_docu,
+      &lt;parname&gt; TYPE ANY,
+      &lt;desc&gt; TYPE ANY,
+      &lt;parm&gt; TYPE ANY.
+
+    LOOP AT it_parameter ASSIGNING &lt;parm&gt;.
+      MOVE-CORRESPONDING &lt;parm&gt; TO cs_wa.
+      ASSIGN COMPONENT &apos;DESCRIPTION&apos; OF STRUCTURE cs_wa TO &lt;desc&gt;.
+      IF ic_parmkind EQ &apos;X&apos;.
+        ASSIGN COMPONENT &apos;EXCEPTION&apos; OF STRUCTURE &lt;parm&gt; TO &lt;parname&gt;.
+      ELSE.
+        ASSIGN COMPONENT &apos;PARAMETER&apos; OF STRUCTURE &lt;parm&gt; TO &lt;parname&gt;.
+      ENDIF.
+      READ TABLE it_docu ASSIGNING &lt;docu&gt;
+        WITH KEY spras     = mc_langu
+                 parameter = &lt;parname&gt;
+                 kind      = ic_parmkind
+                 version   = &apos;0001&apos;.
+      IF sy-subrc EQ 0.
+        &lt;desc&gt; = &lt;docu&gt;-stext.
+      ELSE.
+        CLEAR &lt;desc&gt;.
+      ENDIF.
+
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = ic_tag
+          is_struc = cs_wa
+          ib_end   = abap_false.
+      lc_dok    = ic_function.
+      lc_dok+30 = &lt;parname&gt;.
+      CALL METHOD process_documentation
+        EXPORTING
+          ic_name  = lc_dok
+          ic_dokid = &apos;FU&apos;
+          ic_type  = &apos;T&apos;.
+      CALL METHOD end_tag.
+
+    ENDLOOP.
+  ENDMETHOD.                    &quot;process_parameter
+
+  METHOD process_intf.
+
+    DATA:
+      ls_clskey     TYPE seoclskey,
+      ls_interface  TYPE seoc_interface_r.
+
+    ls_clskey-clsname = ic_name.
+    CALL FUNCTION &apos;SEO_INTERFACE_READ&apos;
+      EXPORTING
+        intkey          = ls_clskey
+        version         = seoc_version_active
+        master_language = space
+        modif_language  = mc_langu
+      IMPORTING
+        interface       = ls_interface.
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;interface&apos;
+        is_struc = ls_interface
+        ib_end   = abap_false.
+
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;IF&apos;.
+
+    CALL METHOD process_object_body
+      EXPORTING
+        ic_name = ic_name.
+
+    CALL METHOD end_tag. &quot;interface
+
+  ENDMETHOD.                    &quot;process_intf
+
+
+
+  METHOD process_tabl.
+
+    DATA:
+      lc_name    TYPE ddobjname,
+      ls_dd02    TYPE dd02v,
+      ls_dd09    TYPE dd09l,
+      lt_dd03    TYPE TABLE OF dd03p.
+    FIELD-SYMBOLS &lt;dd03&gt; LIKE LINE OF lt_dd03.
+
+    lc_name = ic_name.
+    CALL FUNCTION &apos;DDIF_TABL_GET&apos;
+      EXPORTING
+        name                = lc_name
+       langu               = mc_langu
+     IMPORTING
+       dd02v_wa            = ls_dd02
+       dd09l_wa            = ls_dd09
+     TABLES
+       dd03p_tab           = lt_dd03
+*     DD05M_TAB           =
+*     DD08V_TAB           =
+*     DD12V_TAB           =
+*     DD17V_TAB           =
+*     DD35V_TAB           =
+*     DD36M_TAB           =
+     EXCEPTIONS
+       OTHERS              = 1.
+    CHECK: sy-subrc EQ 0,
+           NOT ls_dd02 IS INITIAL.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;table&apos;
+        is_struc = ls_dd02
+        ib_end   = abap_false.
+    IF NOT ls_dd09 IS INITIAL.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;technical-settings&apos;
+          is_struc = ls_dd09.
+    ENDIF.
+
+    LOOP AT lt_dd03 ASSIGNING &lt;dd03&gt;.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;component&apos;
+          is_struc = &lt;dd03&gt;
+          ib_end   = abap_false.
+*     Especially for customising table it might be valuable to display
+*     the data element documentation
+      CALL METHOD process_documentation
+        EXPORTING
+          ic_name  = &lt;dd03&gt;-rollname
+          ic_dokid = &apos;DE&apos;.
+      CALL METHOD end_tag.
+    ENDLOOP.
+
+    IF p_syscnt         EQ abap_true AND
+       ls_dd02-contflag EQ &apos;S&apos;. &quot;system customising table
+      CALL METHOD get_table_content
+        EXPORTING
+          ic_name = ic_name.
+    ENDIF.
+
+    CALL METHOD process_documentation
+      EXPORTING
+        ic_name  = ic_name
+        ic_dokid = &apos;TB&apos;.
+
+    CALL METHOD end_tag.
+
+  ENDMETHOD.                    &quot;process_tabl
+
+
+
+  METHOD process_ttyp.
+
+    DATA:
+      lc_name TYPE ddobjname,
+      ls_dd40 TYPE dd40v,
+      lt_dd42 TYPE TABLE OF dd42v.
+
+    lc_name = ic_name.
+    CALL FUNCTION &apos;DDIF_TTYP_GET&apos;
+      EXPORTING
+        name      = lc_name
+        langu     = mc_langu
+      IMPORTING
+        dd40v_wa  = ls_dd40
+      TABLES
+        dd42v_tab = lt_dd42
+      EXCEPTIONS
+        OTHERS    = 1.
+    CHECK: sy-subrc EQ 0,
+           NOT ls_dd40 IS INITIAL.
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag   = &apos;table-type&apos;
+        is_struc = ls_dd40
+        ib_end   = abap_false.
+    CALL METHOD write_table
+      EXPORTING
+        ic_tag   = &apos;key&apos;
+        it_table = lt_dd42.
+    CALL METHOD end_tag.
+
+  ENDMETHOD.                    &quot;process_ttyp
+
+
+
+  METHOD process_documentation.
+
+    DATA:
+      lt_tline  TYPE tlinetab,
+      lc_object TYPE dokhl-object,
+      lt_docu   TYPE sotr_texts.
+    FIELD-SYMBOLS:
+      &lt;t&gt;       LIKE LINE OF lt_tline,
+      &lt;d&gt;       LIKE LINE OF lt_docu.
+
+    lc_object = ic_name.
+    CALL FUNCTION &apos;DOCU_GET&apos;
+      EXPORTING
+        id     = ic_dokid
+        langu  = mc_langu
+        object = lc_object
+        typ    = ic_type
+      TABLES
+        line   = lt_tline
+      EXCEPTIONS
+        OTHERS = 0.
+    CHECK NOT lt_tline[] IS INITIAL.
+
+* Idea: Use CONVERT_ITF_TO_* here...
+
+    LOOP AT lt_tline ASSIGNING &lt;t&gt;.
+      IF sy-tabix     EQ 1 AND
+       ( &lt;t&gt;-tdformat EQ space OR &lt;t&gt;-tdformat EQ &apos;=&apos; ).
+*       Don&apos;t know how the first line of documentation can have such
+*       a format, but it happens. So better change the format,
+*       otherwise we&apos;ll get a short dump &apos;field symbol not assigned&apos; in
+*       the following CASE statement.
+        &lt;t&gt;-tdformat = &apos;*&apos;.
+      ENDIF.
+
+      CASE &lt;t&gt;-tdformat.
+        WHEN space.
+          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO &lt;d&gt; SEPARATED BY space.
+        WHEN &apos;=&apos;.
+          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO &lt;d&gt;.
+        WHEN OTHERS.
+          APPEND INITIAL LINE TO lt_docu ASSIGNING &lt;d&gt;.
+          &lt;d&gt; = &lt;t&gt;-tdline.
+      ENDCASE.
+
+    ENDLOOP.
+
+
+    CALL METHOD write_tag
+      EXPORTING
+        ic_tag = &apos;documentation&apos;
+        ib_end = abap_false.
+    LOOP AT lt_docu ASSIGNING &lt;d&gt;.
+      REPLACE ALL OCCURRENCES OF &apos;&amp;VLINE&amp;&apos; IN &lt;d&gt; WITH &apos;|&apos;.
+      IF &lt;d&gt; CP &apos;&amp;*&amp;&apos;.
+        IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
+        SHIFT &lt;d&gt; LEFT DELETING LEADING &apos;&amp;&apos;.
+        REPLACE &apos;&amp;&apos; IN &lt;d&gt; WITH space.
+        TRANSLATE &lt;d&gt; TO LOWER CASE.
+        CALL METHOD write_tag
+          EXPORTING
+            ic_tag = &lt;d&gt;
+            ib_end = abap_false.
+      ELSE.
+        REPLACE ALL OCCURRENCES OF:
+          &apos;&lt;&apos;  IN &lt;d&gt; WITH &apos;&amp;lt;&apos;,
+          &apos;&gt;&apos;  IN &lt;d&gt; WITH &apos;&amp;gt;&apos;,
+          &apos;&amp;&apos;  IN &lt;d&gt; WITH &apos;&amp;amp;&apos;,
+          &apos;&quot;&apos;  IN &lt;d&gt; WITH &apos;&amp;quot;&apos;,
+          &apos;&apos;&apos;&apos; IN &lt;d&gt; WITH &apos;&amp;apos;&apos;,
+          &apos;Ä&apos;  IN &lt;d&gt; WITH &apos;Ae&apos;,
+          &apos;Ö&apos;  IN &lt;d&gt; WITH &apos;Oe&apos;,
+          &apos;Ü&apos;  IN &lt;d&gt; WITH &apos;Ue&apos;,
+          &apos;ä&apos;  IN &lt;d&gt; WITH &apos;ae&apos;,
+          &apos;ö&apos;  IN &lt;d&gt; WITH &apos;oe&apos;,
+          &apos;ü&apos;  IN &lt;d&gt; WITH &apos;ue&apos;,
+          &apos;ß&apos;  IN &lt;d&gt; WITH &apos;ss&apos;.
+        APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
+      ENDIF.
+    ENDLOOP.
+    IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
+    CALL METHOD end_tag.
+
+
+  ENDMETHOD.                    &quot;process_documentation
+
+
+
+  METHOD process_object_body.
+
+    DATA:
+      BEGIN OF ls_doku,
+        id          TYPE doku_id,
+        object      TYPE doku_obj,
+      END OF ls_doku,
+      lr_descr      TYPE REF TO cl_abap_objectdescr,
+      ls_clifkey    TYPE seoclskey,
+      lt_clifkey    TYPE TABLE OF seoclskey,
+      lt_attrs      TYPE TABLE OF vseoattrib,
+      ls_attr       TYPE vseoattrib,
+      lt_meth       TYPE TABLE OF vseomethod,
+      ls_meth       TYPE vseomethod,
+      lt_evt        TYPE TABLE OF vseoevent,
+      ls_event      TYPE vseoevent,
+      lt_methpar    TYPE TABLE OF vseoparam,
+      lt_methexc    TYPE TABLE OF vseoexcep,
+      ls_reltype    TYPE seocpdkey,
+      ls_cmpkey     TYPE seocmpkey,
+      ls_relkey     TYPE seorelkey,
+*      ls_class      TYPE seoc_class_r,
+      lt_methpar2   TYPE seos_parameters_r,
+      lt_methexc2   TYPE seos_exceptions_r,
+      ls_attd       TYPE ys_attrdescr,
+      ls_mthd       TYPE ys_methdescr,
+      ls_pard       TYPE ys_parmdescr,
+      ls_excd       TYPE ys_excpdescr,
+      ls_evtd       TYPE ys_evntdescr.
+    FIELD-SYMBOLS:
+      &lt;pr&gt;          LIKE LINE OF ls_mthd-parameters,
+      &lt;ex&gt;          LIKE LINE OF ls_mthd-exceptions,
+      &lt;par&gt;         LIKE LINE OF lt_methpar,
+      &lt;exc&gt;         LIKE LINE OF lt_methexc,
+      &lt;evt&gt;         LIKE LINE OF lr_descr-&gt;events,
+      &lt;att&gt;         LIKE LINE OF lr_descr-&gt;attributes,
+      &lt;mth&gt;         LIKE LINE OF lr_descr-&gt;methods.
+
+    lr_descr ?= cl_abap_typedescr=&gt;describe_by_name( ic_name ).
+
+    CALL METHOD write_table
+      EXPORTING
+        ic_tag   = &apos;interface&apos;
+        it_table = lr_descr-&gt;interfaces.
+
+    ls_clifkey-clsname = ic_name.
+    APPEND ls_clifkey TO lt_clifkey.
+    CALL FUNCTION &apos;SEO_COMPONENTS_SELECT&apos;
+      EXPORTING
+        langu              = mc_langu
+      TABLES
+        clif_keys          = lt_clifkey
+        comp_attributes    = lt_attrs
+        comp_methods       = lt_meth
+        comp_events        = lt_evt
+        subcomp_parameters = lt_methpar
+        subcomp_exceptions = lt_methexc
+      EXCEPTIONS
+        OTHERS             = 0.
+
+    LOOP AT lr_descr-&gt;attributes ASSIGNING &lt;att&gt;.
+
+      CLEAR: ls_attr, ls_relkey, ls_cmpkey.
+      IF NOT &lt;att&gt;-alias_for IS INITIAL.
+*       ...
+      ELSEIF &lt;att&gt;-is_inherited  EQ abap_true OR
+           ( &lt;att&gt;-is_interface  EQ abap_true AND
+             lr_descr-&gt;type_kind NE lr_descr-&gt;typekind_intf ).
+        ls_reltype-clsname = ic_name.
+        ls_reltype-cpdname = &lt;att&gt;-name.
+        CALL FUNCTION &apos;SEO_COMPONENT_BY_INHERITANCE&apos;
+          EXPORTING
+            cpdkey = ls_reltype
+          IMPORTING
+            relkey = ls_relkey
+            cmpkey = ls_cmpkey
+          EXCEPTIONS
+            OTHERS = 0.
+        CALL FUNCTION &apos;SEO_ATTRIBUTE_GET&apos;
+          EXPORTING
+            attkey    = ls_cmpkey
+          IMPORTING
+            attribute = ls_attr
+          EXCEPTIONS
+            OTHERS    = 0.
+      ELSE.
+        READ TABLE lt_attrs INTO ls_attr WITH KEY cmpname = &lt;att&gt;-name.
+      ENDIF.
+
+      MOVE-CORRESPONDING &lt;att&gt; TO ls_attd.
+      ls_attd-description = ls_attr-descript.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;attribute&apos;
+          is_struc = ls_attd
+          ib_end   = abap_false.
+      IF NOT ls_attr IS INITIAL.
+        CALL METHOD write_tag
+          EXPORTING
+            ic_tag   = &apos;att-ddic&apos;
+            is_struc = ls_attr.
+        IF NOT ls_relkey IS INITIAL.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;inheritance&apos;
+              is_struc = ls_relkey.
+        ENDIF.
+      ENDIF.
+
+      IF &lt;att&gt;-is_interface EQ abap_true.
+        ls_doku-id = &apos;IA&apos;.
+      ELSE.
+        ls_doku-id = &apos;CA&apos;.
+      ENDIF.
+      IF NOT ls_cmpkey IS INITIAL.
+        ls_doku-object    = ls_cmpkey.
+      ELSE.
+        ls_doku-object    = ic_name.
+        ls_doku-object+30 = &lt;att&gt;-name.
+      ENDIF.
+      CALL METHOD process_documentation
+        EXPORTING
+          ic_name  = ls_doku-object
+          ic_dokid = ls_doku-id.
+
+      CALL METHOD end_tag. &quot;attribute
+    ENDLOOP.
+
+
+
+    LOOP AT lr_descr-&gt;methods ASSIGNING &lt;mth&gt;.
+      CLEAR: ls_meth, ls_relkey.
+      IF NOT &lt;mth&gt;-alias_for IS INITIAL.
+*       ...
+      ELSEIF &lt;mth&gt;-is_inherited  EQ abap_true OR
+           ( &lt;mth&gt;-is_interface  EQ abap_true AND
+             lr_descr-&gt;type_kind NE lr_descr-&gt;typekind_intf ).
+        ls_reltype-clsname = ic_name.
+        ls_reltype-cpdname = &lt;mth&gt;-name.
+        CALL FUNCTION &apos;SEO_COMPONENT_BY_INHERITANCE&apos;
+          EXPORTING
+            cpdkey = ls_reltype
+          IMPORTING
+            relkey = ls_relkey
+            cmpkey = ls_cmpkey
+          EXCEPTIONS
+            OTHERS = 0.
+        CALL FUNCTION &apos;SEO_METHOD_SIGNATURE_GET&apos;
+          EXPORTING
+            mtdkey     = ls_cmpkey
+          IMPORTING
+            method     = ls_meth
+            PARAMETERS = lt_methpar2
+            exceps     = lt_methexc2
+          EXCEPTIONS
+            OTHERS     = 0.
+      ELSE.
+        READ TABLE lt_meth INTO ls_meth WITH KEY cmpname = &lt;mth&gt;-name.
+        REFRESH: lt_methpar2, lt_methexc2.
+        LOOP AT lt_methpar ASSIGNING &lt;par&gt;
+          WHERE cmpname EQ ls_meth-cmpname.
+          APPEND &lt;par&gt; TO lt_methpar2.
+        ENDLOOP.
+        LOOP AT lt_methexc ASSIGNING &lt;exc&gt;
+          WHERE cmpname EQ ls_meth-cmpname.
+          APPEND &lt;exc&gt; TO lt_methexc2.
+        ENDLOOP.
+      ENDIF.
+
+      MOVE-CORRESPONDING &lt;mth&gt; TO ls_mthd.
+      ls_mthd-description = ls_meth-descript.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;method&apos;
+          is_struc = ls_mthd
+          ib_end   = abap_false.
+      IF NOT ls_meth IS INITIAL.
+        CALL METHOD write_tag
+          EXPORTING
+            ic_tag   = &apos;meth-ddic&apos;
+            is_struc = ls_meth.
+        IF NOT ls_relkey IS INITIAL.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;inheritance&apos;
+              is_struc = ls_relkey.
+        ENDIF.
+
+        LOOP AT &lt;mth&gt;-parameters ASSIGNING &lt;pr&gt;.
+          READ TABLE lt_methpar2 ASSIGNING &lt;par&gt;
+            WITH KEY clsname = ls_meth-clsname
+                     cmpname = ls_meth-cmpname
+                     sconame = &lt;pr&gt;-name.
+          MOVE-CORRESPONDING &lt;pr&gt; TO ls_pard.
+          ls_pard-description = &lt;par&gt;-descript.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;parameter&apos;
+              is_struc = ls_pard
+              ib_end   = abap_false.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;par-ddic&apos;
+              is_struc = &lt;par&gt;.
+          CALL METHOD end_tag. &quot;method
+        ENDLOOP.
+        LOOP AT &lt;mth&gt;-exceptions ASSIGNING &lt;ex&gt;.
+          READ TABLE lt_methexc2 ASSIGNING &lt;exc&gt;
+            WITH KEY clsname = ls_meth-clsname
+                     cmpname = ls_meth-cmpname
+                     sconame = &lt;ex&gt;-name.
+          MOVE-CORRESPONDING &lt;ex&gt; TO ls_excd.
+          ls_excd-description = &lt;exc&gt;-descript.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;exception&apos;
+              is_struc = ls_excd
+              ib_end   = abap_false.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;exc-ddic&apos;
+              is_struc = &lt;exc&gt;.
+          CALL METHOD end_tag. &quot; exception
+        ENDLOOP.
+      ENDIF.
+
+      IF &lt;mth&gt;-is_interface EQ abap_true.
+        ls_doku-id = &apos;IO&apos;.
+      ELSE.
+        ls_doku-id = &apos;CO&apos;.
+      ENDIF.
+      IF NOT ls_cmpkey IS INITIAL.
+        ls_doku-object    = ls_cmpkey.
+      ELSE.
+        ls_doku-object    = ic_name.
+        ls_doku-object+30 = &lt;mth&gt;-name.
+      ENDIF.
+      CALL METHOD process_documentation
+        EXPORTING
+          ic_name  = ls_doku-object
+          ic_dokid = ls_doku-id.
+
+      CALL METHOD end_tag. &quot;method
+    ENDLOOP.
+
+
+
+    LOOP AT lr_descr-&gt;events ASSIGNING &lt;evt&gt;.
+      CLEAR: ls_event, ls_relkey, ls_cmpkey.
+      IF NOT &lt;evt&gt;-alias_for IS INITIAL.
+*       ...
+      ELSEIF &lt;evt&gt;-is_inherited  EQ abap_true OR
+           ( &lt;evt&gt;-is_interface  EQ abap_true AND
+             lr_descr-&gt;type_kind NE lr_descr-&gt;typekind_intf ).
+        ls_reltype-clsname = ic_name.
+        ls_reltype-cpdname = &lt;evt&gt;-name.
+        CALL FUNCTION &apos;SEO_COMPONENT_BY_INHERITANCE&apos;
+          EXPORTING
+            cpdkey = ls_reltype
+          IMPORTING
+            relkey = ls_relkey
+            cmpkey = ls_cmpkey
+          EXCEPTIONS
+            OTHERS = 0.
+        CALL FUNCTION &apos;SEO_EVENT_SIGNATURE_GET&apos;
+          EXPORTING
+            evtkey     = ls_cmpkey
+          IMPORTING
+            event      = ls_event
+            PARAMETERS = lt_methpar2
+          EXCEPTIONS
+            OTHERS     = 0.
+      ELSE.
+        READ TABLE lt_evt INTO ls_event WITH KEY cmpname = &lt;evt&gt;-name.
+        REFRESH lt_methpar2.
+        LOOP AT lt_methpar ASSIGNING &lt;par&gt;
+          WHERE cmpname EQ ls_event-cmpname.
+          APPEND &lt;par&gt; TO lt_methpar2.
+        ENDLOOP.
+      ENDIF.
+      APPEND INITIAL LINE TO lt_methpar2 ASSIGNING &lt;par&gt;.
+      IF NOT ls_cmpkey IS INITIAL.
+        MOVE-CORRESPONDING ls_cmpkey TO &lt;par&gt;.
+      ELSE.
+        MOVE-CORRESPONDING ls_event TO &lt;par&gt;.
+      ENDIF.
+      &lt;par&gt;-sconame    = &apos;SENDER&apos;.
+      &lt;par&gt;-version    = &apos;1&apos;. &quot;active
+      &lt;par&gt;-langu      = mc_langu.
+      &lt;par&gt;-descript   = &apos;Implicitly added sender of the event&apos;(001).
+      &lt;par&gt;-cmptype    = &apos;2&apos;. &quot;method
+      &lt;par&gt;-mtdtype    = &apos;0&apos;. &quot;regular method
+      &lt;par&gt;-editorder  = &apos;0&apos;.
+      &lt;par&gt;-dispid     = &apos;0&apos;.
+      &lt;par&gt;-author     = ls_event-author.
+      &lt;par&gt;-createdon  = ls_event-createdon.
+      &lt;par&gt;-changedby  = ls_event-changedby.
+      &lt;par&gt;-changedon  = ls_event-changedon.
+      &lt;par&gt;-pardecltyp = &apos;1&apos;. &quot;always exporting
+      &lt;par&gt;-parpasstyp = &apos;0&apos;. &quot;always by-value
+      &lt;par&gt;-typtype    = &apos;3&apos;. &quot;TYPE REF TO
+      &lt;par&gt;-type       = ic_name.
+*      &lt;par&gt;-TABLEOF
+*      &lt;par&gt;-PARVALUE
+*      &lt;par&gt;-PAROPTIONL
+*      &lt;par&gt;-PARPREFERD
+*      &lt;par&gt;-LOCKED
+
+      MOVE-CORRESPONDING &lt;evt&gt; TO ls_evtd.
+      ls_evtd-description = ls_event-descript.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;event&apos;
+          is_struc = ls_evtd
+          ib_end   = abap_false.
+      IF NOT ls_event IS INITIAL.
+        CALL METHOD write_tag
+          EXPORTING
+            ic_tag   = &apos;evt-ddic&apos;
+            is_struc = ls_event.
+        IF NOT ls_relkey IS INITIAL.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;inheritance&apos;
+              is_struc = ls_relkey.
+        ENDIF.
+
+        LOOP AT &lt;evt&gt;-parameters ASSIGNING &lt;pr&gt;.
+          READ TABLE lt_methpar2 ASSIGNING &lt;par&gt;
+            WITH KEY clsname = ls_event-clsname
+                     cmpname = ls_event-cmpname
+                     sconame = &lt;pr&gt;-name.
+          MOVE-CORRESPONDING &lt;pr&gt; TO ls_pard.
+          ls_pard-description = &lt;par&gt;-descript.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;parameter&apos;
+              is_struc = ls_pard
+              ib_end   = abap_false.
+          CALL METHOD write_tag
+            EXPORTING
+              ic_tag   = &apos;par-ddic&apos;
+              is_struc = &lt;par&gt;.
+          CALL METHOD end_tag. &quot;method
+        ENDLOOP.
+      ENDIF.
+
+      IF &lt;evt&gt;-is_interface EQ abap_true.
+        ls_doku-id = &apos;IE&apos;.
+      ELSE.
+        ls_doku-id = &apos;CE&apos;.
+      ENDIF.
+      IF NOT ls_cmpkey IS INITIAL.
+        ls_doku-object    = ls_cmpkey.
+      ELSE.
+        ls_doku-object    = ic_name.
+        ls_doku-object+30 = &lt;evt&gt;-name.
+      ENDIF.
+      CALL METHOD process_documentation
+        EXPORTING
+          ic_name  = ls_doku-object
+          ic_dokid = ls_doku-id.
+
+      CALL METHOD end_tag. &quot;method
+    ENDLOOP.
+
+  ENDMETHOD.                    &quot;process_object_body
+
+
+
+  METHOD get_table_content.
+
+    DATA:
+      lr_content TYPE REF TO data.
+    FIELD-SYMBOLS:
+      &lt;content&gt;  TYPE ANY.
+
+    CREATE DATA lr_content TYPE (ic_name).
+    ASSIGN lr_content-&gt;* TO &lt;content&gt;.
+    SELECT * FROM (ic_name) INTO &lt;content&gt;.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;entry&apos;
+          is_struc = &lt;content&gt;.
+    ENDSELECT.
+
+  ENDMETHOD.                    &quot;get_table_content
+
+
+
+  METHOD write_table.
+
+    FIELD-SYMBOLS &lt;l&gt; TYPE ANY.
+
+    LOOP AT it_table ASSIGNING &lt;l&gt;.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = ic_tag
+          is_struc = &lt;l&gt;.
+    ENDLOOP.
+
+  ENDMETHOD.                    &quot;write_table
+
+
+
+  METHOD write_tag.
+
+    DATA lc_str TYPE string.
+
+
+    APPEND INITIAL LINE TO mt_output REFERENCE INTO mr_output.
+    INSERT ic_tag INTO mt_tags INDEX 1.
+
+    IF is_struc IS SUPPLIED.
+      lc_str = write_attributes( is_struc ).
+    ENDIF.
+
+    IF ib_end EQ abap_true.
+      CONCATENATE &apos;&lt;&apos; ic_tag lc_str &apos;/&gt;&apos; INTO mr_output-&gt;*.
+      DELETE mt_tags INDEX 1.
+    ELSE.
+      CONCATENATE &apos;&lt;&apos; ic_tag lc_str &apos;&gt;&apos; INTO mr_output-&gt;*.
+    ENDIF.
+
+  ENDMETHOD.                    &quot;write_tag
+
+
+  METHOD end_tag.
+
+    DATA lc_tag TYPE string.
+
+    APPEND INITIAL LINE TO mt_output REFERENCE INTO mr_output.
+    lc_tag = get_tag( ).
+    CONCATENATE &apos;&lt;/&apos; lc_tag &apos;&gt;&apos; INTO mr_output-&gt;*.
+    DELETE mt_tags INDEX 1.
+
+  ENDMETHOD.                    &quot;end_tag
+
+
+  METHOD get_tag.
+    READ TABLE mt_tags INTO ec_tag INDEX 1.
+  ENDMETHOD .                    &quot;get_tag
+
+
+*&amp;---------------------------------------------------------------------*
+*&amp;      Form  write_attributes
+*&amp;---------------------------------------------------------------------*
+  METHOD write_attributes.
+
+    DATA:
+      lr_descr TYPE REF TO cl_abap_structdescr,
+      lc_attr  TYPE string.
+    FIELD-SYMBOLS:
+      &lt;c&gt;      LIKE LINE OF lr_descr-&gt;components,
+      &lt;f&gt;      TYPE ANY.
+
+    lr_descr ?= cl_abap_typedescr=&gt;describe_by_data( is_struc ).
+
+    LOOP AT lr_descr-&gt;components ASSIGNING &lt;c&gt;.
+      CLEAR lc_attr.
+      ASSIGN COMPONENT &lt;c&gt;-name OF STRUCTURE is_struc TO &lt;f&gt;.
+      lc_attr = write_attribute( ic_name = &lt;c&gt;-name i_field = &lt;f&gt; ).
+      CHECK NOT lc_attr IS INITIAL.
+      CONCATENATE ec_attr lc_attr INTO ec_attr SEPARATED BY space.
+    ENDLOOP.
+
+  ENDMETHOD.                    &quot;write_attributes
+
+*&amp;---------------------------------------------------------------------*
+*&amp;      Form  write_attribute
+*&amp;---------------------------------------------------------------------*
+  METHOD write_attribute.
+
+    DATA:
+      lc_name  TYPE string,
+      lc_value TYPE string.
+*      li_len   TYPE i.
+
+    lc_name = get_attribute_name( ic_name ).
+    CHECK NOT lc_name IS INITIAL.
+  lc_value = get_attribute_value( ic_name = lc_name i_field = i_field ).
+    CHECK NOT lc_value IS INITIAL.
+    CONCATENATE lc_name &apos;=&apos; lc_value INTO ec_attribute.
+
+  ENDMETHOD.                    &quot;write_attribute
+
+*&amp;---------------------------------------------------------------------*
+*&amp;      Form  write_attribute_name
+*&amp;---------------------------------------------------------------------*
+  METHOD get_attribute_name.
+
+    IF get_tag( ) NE &apos;entry&apos;.
+      CHECK ic_name NE: &apos;DDLANGUAGE&apos;, &apos;SPRAS&apos;, &apos;LANGU&apos;,
+                        &apos;INTLENGTH&apos;, &apos;EDITORDER&apos;, &apos;R3RELEASE&apos;, &apos;DISPID&apos;,
+                        &apos;UUID&apos;.
+    ENDIF.
+
+    transl &apos;DDTEXT&apos; &apos;description&apos;.
+    transl &apos;DESCRIPT&apos; &apos;description&apos;.
+    transl &apos;AS4USER&apos; &apos;changedby&apos;.
+    transl &apos;AS4DATE&apos; &apos;changedon&apos;.
+    transl &apos;AS4USER&apos; &apos;changedby&apos;.
+
+
+    CASE get_tag( ).
+      WHEN &apos;package&apos;.
+        transl &apos;DEVCLASS&apos; &apos;name&apos;.
+        transl &apos;CTEXT&apos; &apos;description&apos;.
+      WHEN &apos;class&apos; OR &apos;subclass&apos; OR &apos;superclass&apos;.
+        CHECK ic_name NE: &apos;LANGU&apos;, &apos;REFCLSNAME&apos;.
+        transl &apos;CLSNAME&apos; &apos;name&apos;.
+      WHEN &apos;attribute&apos;. &quot;of a class
+        CHECK ic_name NE: &apos;LENGTH&apos;, &apos;DECIMALS&apos;.
+*        transl &apos;CMPNAME&apos; &apos;name&apos;.
+*        transl &apos;ATTDECLTYP&apos; &apos;scope&apos;.
+      WHEN &apos;method&apos;. &quot;of a class
+        CHECK ic_name NE: &apos;PARAMETERS&apos;, &apos;EXCEPTIONS&apos;.
+*        CHECK ic_name NE: &apos;CLSNAME&apos;.
+        transl &apos;CMPNAME&apos; &apos;name&apos;.
+        transl &apos;MTDDECLTYP&apos; &apos;scope&apos;.
+      WHEN &apos;parameter&apos;. &quot;of a function module or class
+        CHECK ic_name NE: &apos;POSITION&apos;, &apos;CLSNAME&apos;, &apos;CMPNAME&apos;, &apos;LENGTH&apos;,
+                          &apos;DECIMALS&apos;.
+        transl &apos;SCONAME&apos; &apos;name&apos;.   &quot;class
+        transl &apos;TABNAME&apos; &apos;type&apos;.
+        transl &apos;PARAMTEXT&apos; &apos;description&apos;.
+      WHEN &apos;event&apos;.
+        CHECK ic_name NE &apos;PARAMETERS&apos;.
+      WHEN &apos;dataelem&apos;.
+        transl &apos;ROLLNAME&apos; &apos;name&apos;.
+      WHEN &apos;domain&apos;.
+        transl &apos;DOMNAME&apos; &apos;name&apos;.
+      WHEN &apos;fixed-value&apos;. &quot;of domain
+        CHECK ic_name NE: &apos;DOMNAME&apos;, &apos;VALPOS&apos;.
+      WHEN &apos;enqueue-object&apos;.
+        transl &apos;VIEWNAME&apos; &apos;name&apos;.
+      WHEN &apos;base-table&apos;. &quot;of an enqueue object
+        CHECK ic_name NE &apos;VIEWNAME&apos;.
+        transl &apos;TABNAME&apos; &apos;type&apos;.
+      WHEN &apos;lock-argument&apos;. &quot;of an enqueue object
+        CHECK ic_name NE &apos;VIEWNAME&apos;.
+      WHEN &apos;lock-parameter&apos;. &quot;of an enqueue object
+        CHECK ic_name NE &apos;VIEWNAME&apos;.
+      WHEN &apos;function-group&apos;.
+        CHECK ic_name NE &apos;DEVCLASS&apos;.
+        transl &apos;AREA&apos; &apos;name&apos;.
+        transl &apos;AREAT&apos; &apos;description&apos;.
+      WHEN &apos;function-module&apos;.
+        CHECK ic_name NE &apos;AREA&apos;.
+        transl &apos;FUNCNAME&apos; &apos;name&apos;.
+        transl &apos;STEXT&apos; &apos;description&apos;.
+      WHEN &apos;importing&apos; OR &apos;exporting&apos; OR &apos;changing&apos; OR &apos;tables&apos;.
+        transl &apos;PARAMETER&apos; &apos;name&apos;.
+        transl &apos;TYP&apos; &apos;type&apos;.
+        transl &apos;DBFIELD&apos; &apos;type&apos;.
+        transl &apos;DBSTRUCT&apos; &apos;type&apos;.
+      WHEN &apos;exception&apos;.
+        transl &apos;EXCEPTION&apos; &apos;name&apos;.
+      WHEN &apos;interface&apos;.
+        transl &apos;CLSNAME&apos; &apos;name&apos;.
+      WHEN &apos;table&apos;.
+        transl &apos;TABNAME&apos; &apos;name&apos;.
+        transl &apos;ROLLNAME&apos; &apos;type&apos;.
+      WHEN &apos;component&apos;. &quot;of a table or structure
+        CHECK ic_name NE: &apos;TABNAME&apos;, &apos;POSITION&apos;, &apos;OFFSET&apos;.
+        transl &apos;FIELDNAME&apos; &apos;name&apos;.
+        transl &apos;ROLLNAME&apos; &apos;type&apos;.
+      WHEN &apos;table-type&apos;.
+        transl &apos;TYPENAME&apos; &apos;name&apos;.
+        transl &apos;ROWTYPE&apos; &apos;type&apos;.
+      WHEN &apos;key&apos;. &quot;of table-type.
+        CHECK ic_name NE &apos;TYPENAME&apos;.
+
+    ENDCASE.
+
+    IF ec_name IS INITIAL. &quot;none of previous translations applied
+      ec_name = ic_name.
+      TRANSLATE ec_name TO LOWER CASE.
+    ENDIF.
+
+  ENDMETHOD.                    &quot;write_attribute_name
+
+
+*&amp;---------------------------------------------------------------------*
+*&amp;      Form  get_attribute_value
+*&amp;---------------------------------------------------------------------*
+  METHOD get_attribute_value.
+
+    DATA lc(100) TYPE c.
+
+    WRITE i_field TO lc LEFT-JUSTIFIED.
+
+    IF lc IS INITIAL.
+
+      CHECK get_tag( ) EQ &apos;fixed-value&apos; OR
+            get_tag( ) EQ &apos;entry&apos;.
+
+      ec_value = &apos;&quot; &quot;&apos;.
+      EXIT.
+
+    ELSEIF lc EQ &apos;00.00.0000&apos;.
+
+      EXIT.
+
+    ENDIF.
+
+    CASE get_tag( ).
+      WHEN &apos;attribute&apos; OR &apos;method&apos;.
+        IF ic_name EQ &apos;scope&apos;.
+          CASE i_field.
+            WHEN &apos;0&apos;. lc = &apos;instance&apos;.
+            WHEN &apos;1&apos;. lc = &apos;static&apos;.
+            WHEN &apos;2&apos;. lc = &apos;constant&apos;.
+          ENDCASE.
+        ENDIF.
+    ENDCASE.
+
+
+    IF lc CA &apos;ÄÖÜäöüß&lt;&gt;&amp;&quot;&apos;&apos;&apos;.
+      REPLACE ALL OCCURRENCES OF:
+        &apos;&lt;&apos;  IN lc WITH &apos;&amp;lt;&apos;,
+        &apos;&gt;&apos;  IN lc WITH &apos;&amp;gt;&apos;,
+        &apos;&amp;&apos;  IN lc WITH &apos;&amp;amp;&apos;,
+        &apos;&quot;&apos;  IN lc WITH &apos;&amp;quot;&apos;,
+        &apos;&apos;&apos;&apos; IN lc WITH &apos;&amp;apos;&apos;,
+        &apos;Ä&apos;  IN lc WITH &apos;Ae&apos;,
+        &apos;Ö&apos;  IN lc WITH &apos;Oe&apos;,
+        &apos;Ü&apos;  IN lc WITH &apos;Ue&apos;,
+        &apos;ä&apos;  IN lc WITH &apos;ae&apos;,
+        &apos;ö&apos;  IN lc WITH &apos;oe&apos;,
+        &apos;ü&apos;  IN lc WITH &apos;ue&apos;,
+        &apos;ß&apos;  IN lc WITH &apos;ss&apos;.
+    ENDIF.
+
+    CONCATENATE &apos;&quot;&apos; lc &apos;&quot;&apos; INTO ec_value.
+
+
+  ENDMETHOD.                    &quot;get_attribute_value
+
+
+  METHOD get_superclass .
+
+    CLEAR ec_superclass.
+
+    DATA:
+      lr_descr TYPE REF TO cl_abap_typedescr,
+      lr_class TYPE REF TO cl_abap_classdescr.
+
+    CALL METHOD cl_abap_typedescr=&gt;describe_by_name
+      EXPORTING
+        p_name      = ic_classname
+      RECEIVING
+        p_descr_ref = lr_descr
+      EXCEPTIONS
+        OTHERS      = 1.
+    CHECK sy-subrc EQ 0.
+
+    CATCH SYSTEM-EXCEPTIONS move_cast_error = 1.
+      lr_class ?= lr_descr.
+    ENDCATCH.
+    CHECK sy-subrc EQ 0.
+
+    CALL METHOD lr_class-&gt;get_super_class_type
+      RECEIVING
+        p_descr_ref = lr_descr
+      EXCEPTIONS
+        OTHERS      = 1.
+    CHECK: sy-subrc     EQ 0,
+           NOT lr_descr IS INITIAL. &quot;no superclass
+
+    ec_superclass = lr_descr-&gt;get_relative_name( ).
+
+  ENDMETHOD.                    &quot;GET_SUPERCLASS
+
+ENDCLASS.                    &quot;ycl_generator IMPLEMENTATION</source>
+</PROG>
