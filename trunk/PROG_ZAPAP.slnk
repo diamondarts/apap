@@ -1,8 +1,9 @@
-<?xml version="1.0" encoding="iso-8859-1"?>
-<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070426" VERN="000011" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070426" STIME="113147" IDATE="20070426" ITIME="113147" UCCHECK="X">
+ï»¿<?xml version="1.0" encoding="iso-8859-1"?>
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070426" VERN="000019" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070426" STIME="124525" IDATE="20070426" ITIME="124525" UCCHECK="X">
  <textPool>
   <language SPRAS="E">
    <textElement ID="R" ENTRY="Generate an XML file of a development class" LENGTH="43 "/>
+   <textElement ID="S" KEY="P_APPL" ENTRY="        Application name" LENGTH="24 "/>
    <textElement ID="S" KEY="P_FILE" ENTRY="        Download to" LENGTH="19 "/>
    <textElement ID="S" KEY="P_LANGU" ENTRY="        Language" LENGTH="16 "/>
    <textElement ID="S" KEY="P_SYSCNT" ENTRY="        Include system table content" LENGTH="36 "/>
@@ -16,7 +17,7 @@
 *&amp;---------------------------------------------------------------------*
 *
 * APAP - Generate javadoc-style documentation for SAP repository objects
-* Copyright (C) 2007  Björn Harmen Gerth
+* Copyright (C) 2007  BjÃ¶rn Harmen Gerth
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -178,9 +179,12 @@ DATA:
   gc_devc      TYPE tdevc-devclass,
   gc_object    TYPE tadir-object.
 
+PARAMETERS:
+* text: &apos;Application name&apos;
+  p_appl       TYPE cvers_ref-desc_text.
 SELECT-OPTIONS:
 * text from ddic
-  s_devcls     FOR gc_devc,
+  s_devcls     FOR gc_devc OBLIGATORY,
 * text from ddic
   s_object     FOR gc_object.
 PARAMETERS:
@@ -261,8 +265,13 @@ START-OF-SELECTION.
 
   APPEND &apos;&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&apos;
   TO gr_generator-&gt;mt_output.
-  APPEND &apos;&lt;application name=&quot;Ebydos Process Director&quot;&gt;&apos;
-  TO gr_generator-&gt;mt_output.
+  IF p_appl IS INITIAL.
+    APPEND &apos;&lt;application&gt;&apos; TO gr_generator-&gt;mt_output.
+  ELSE.
+    CLEAR gc_file.
+    CONCATENATE &apos;&lt;application name=&quot;&apos; p_appl &apos;&quot;&gt;&apos; INTO gc_file.
+    APPEND gc_file TO gr_generator-&gt;mt_output.
+  ENDIF.
 
   SELECT devclass FROM tdevc
                   INTO gc_devc
@@ -984,13 +993,13 @@ CLASS ycl_generator IMPLEMENTATION.
           &apos;&amp;&apos;  IN &lt;d&gt; WITH &apos;&amp;amp;&apos;,
           &apos;&quot;&apos;  IN &lt;d&gt; WITH &apos;&amp;quot;&apos;,
           &apos;&apos;&apos;&apos; IN &lt;d&gt; WITH &apos;&amp;apos;&apos;,
-          &apos;Ä&apos;  IN &lt;d&gt; WITH &apos;Ae&apos;,
-          &apos;Ö&apos;  IN &lt;d&gt; WITH &apos;Oe&apos;,
-          &apos;Ü&apos;  IN &lt;d&gt; WITH &apos;Ue&apos;,
-          &apos;ä&apos;  IN &lt;d&gt; WITH &apos;ae&apos;,
-          &apos;ö&apos;  IN &lt;d&gt; WITH &apos;oe&apos;,
-          &apos;ü&apos;  IN &lt;d&gt; WITH &apos;ue&apos;,
-          &apos;ß&apos;  IN &lt;d&gt; WITH &apos;ss&apos;.
+          &apos;Ã„&apos;  IN &lt;d&gt; WITH &apos;Ae&apos;,
+          &apos;Ã–&apos;  IN &lt;d&gt; WITH &apos;Oe&apos;,
+          &apos;Ãœ&apos;  IN &lt;d&gt; WITH &apos;Ue&apos;,
+          &apos;Ã¤&apos;  IN &lt;d&gt; WITH &apos;ae&apos;,
+          &apos;Ã¶&apos;  IN &lt;d&gt; WITH &apos;oe&apos;,
+          &apos;Ã¼&apos;  IN &lt;d&gt; WITH &apos;ue&apos;,
+          &apos;ÃŸ&apos;  IN &lt;d&gt; WITH &apos;ss&apos;.
         APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
       ENDIF.
     ENDLOOP.
@@ -1620,20 +1629,20 @@ CLASS ycl_generator IMPLEMENTATION.
     ENDCASE.
 
 
-    IF lc CA &apos;ÄÖÜäöüß&lt;&gt;&amp;&quot;&apos;&apos;&apos;.
+    IF lc CA &apos;Ã„Ã–ÃœÃ¤Ã¶Ã¼ÃŸ&lt;&gt;&amp;&quot;&apos;&apos;&apos;.
       REPLACE ALL OCCURRENCES OF:
         &apos;&lt;&apos;  IN lc WITH &apos;&amp;lt;&apos;,
         &apos;&gt;&apos;  IN lc WITH &apos;&amp;gt;&apos;,
         &apos;&amp;&apos;  IN lc WITH &apos;&amp;amp;&apos;,
         &apos;&quot;&apos;  IN lc WITH &apos;&amp;quot;&apos;,
         &apos;&apos;&apos;&apos; IN lc WITH &apos;&amp;apos;&apos;,
-        &apos;Ä&apos;  IN lc WITH &apos;Ae&apos;,
-        &apos;Ö&apos;  IN lc WITH &apos;Oe&apos;,
-        &apos;Ü&apos;  IN lc WITH &apos;Ue&apos;,
-        &apos;ä&apos;  IN lc WITH &apos;ae&apos;,
-        &apos;ö&apos;  IN lc WITH &apos;oe&apos;,
-        &apos;ü&apos;  IN lc WITH &apos;ue&apos;,
-        &apos;ß&apos;  IN lc WITH &apos;ss&apos;.
+        &apos;Ã„&apos;  IN lc WITH &apos;Ae&apos;,
+        &apos;Ã–&apos;  IN lc WITH &apos;Oe&apos;,
+        &apos;Ãœ&apos;  IN lc WITH &apos;Ue&apos;,
+        &apos;Ã¤&apos;  IN lc WITH &apos;ae&apos;,
+        &apos;Ã¶&apos;  IN lc WITH &apos;oe&apos;,
+        &apos;Ã¼&apos;  IN lc WITH &apos;ue&apos;,
+        &apos;ÃŸ&apos;  IN lc WITH &apos;ss&apos;.
     ENDIF.
 
     CONCATENATE &apos;&quot;&apos; lc &apos;&quot;&apos; INTO ec_value.
