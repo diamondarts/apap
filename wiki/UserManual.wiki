@@ -1,4 +1,4 @@
-#summary How to user APAP.
+#summary How to use APAP.
 
 = Introduction =
 
@@ -38,6 +38,5 @@ java org.apache.xalan.xslt.Process -in zapap.xml -xsl apap.xsl -param workdir c:
 }}}
 
 The processor will then have generated an API documentation in the specified directory. 
-
 
 
