@@ -2,7 +2,7 @@
 
 = Introduction =
 
-This is a short manual how to use APAP to generate documentation from you SAP repository objects.
+This is a short manual how to use APAP to generate documentation from SAP repository objects.
 
 = Details =
 
@@ -13,11 +13,11 @@ Follow these steps:
 If you have not yet done so, import the report ZAPAP into your SAP system. You can either use [http://www.saplink.org SAPlink] to import the Slinkee [http://apap.googlecode.com/svn/trunk/PROG_ZAPAP.slnk PROG_ZAPAP.slnk] or create the report ZAPAP with transaction SE38 and copy'n'paste the report text [http://apap.googlecode.com/svn/trunk/PROG_ZAPAP.txt PROG_ZAPAP.txt] into it.
 
 The selection screen
-* *Package*: Choose one or more packages to be exported. Currently, only main packages are evaluated, i.e. where the "Main Package" flag is set.
-* *Object type*: Select the repository object types to be included in the output. Currently the default values are the supported types.
-* *Language': Enter the language in which the object descriptions and documentations will be retrieved.
-* *Include system table content*: Mark this checkbox if you want to add the content of system tables (type S') in the output file.
-* *Download to*: Use the F4 help to select a destination file to write the output to.
+  * *Package*: Choose one or more packages to be exported. Currently, only main packages are evaluated, i.e. where the "Main Package" flag is set.
+  * *Object type*: Select the repository object types to be included in the output. Currently the default values are the supported types.
+  * *Language*: Enter the language in which the object descriptions and documentations will be retrieved.
+  * *Include system table content*: Mark this checkbox if you want to add the content of system tables (type S') in the output file.
+  * *Download to*: Use the F4 help to select a destination file to write the output to.
 
 The report may run a while, depending on the size of the selected packages. It will then display the created output as a list while saving it to the specified destination file.
 
@@ -25,12 +25,12 @@ The report may run a while, depending on the size of the selected packages. It w
 
 The other [http://apap.googlecode.com/svn/trunk/ files of the project] take care of xslt-processing the APAP XML file to the destination format. Currently, only HTML is supported.
 
-Unfortunately, the master file [http://apap.googlecode.com/svn/trunk/apap.xsl apap.xsl] contains some directions prorietary to [http://xalan.apache.org/ Xalan]. So you are currently restricted to using this XSLT processor.
+Unfortunately, the master file [http://apap.googlecode.com/svn/trunk/apap.xsl apap.xsl] contains some directions proprietary to [http://xalan.apache.org/ Xalan]. So you are currently restricted to using this XSLT processor.
 
 If you have not yet done so, set up the XSLT processor:
-* Maybe your system already features the XSLT processor. For example, the Ubuntu distribution already provides the Xalan processor in the default installation (I think).
-* Otherwise set up the processor according to the instructions at the [http://xalan.apache.org/ Xalan homepage].
-* Another possibility is to use the [http://eclipsexslt.sourceforge.net/ EclipseXSLT plugin] which allows you to run the XSLT processor from within the Eclipse Workbench.
+  * Maybe your system already features the XSLT processor. For example, the Ubuntu distribution already provides the Xalan processor in the default installation (I think).
+  * Otherwise set up the processor according to the instructions at the [http://xalan.apache.org/ Xalan homepage].
+  * Another possibility is to use the [http://eclipsexslt.sourceforge.net/ EclipseXSLT plugin] which allows you to run the XSLT processor from within the Eclipse Workbench.
 
 Use the XSLT processor to process the output file from above with the stylesheet [http://apap.googlecode.com/svn/trunk/apap.xsl apap.xsl]. You may pass a different directory as parameter `workdir` to the processor, but that parameter must end with a separator. The command line might therefore look like this (assuming the generated output file from the step above was named zapap.xml):
 {{{
@@ -38,5 +38,7 @@ java org.apache.xalan.xslt.Process -in zapap.xml -xsl apap.xsl -param workdir c:
 }}}
 
 The processor will then have generated an API documentation in the specified directory. 
+
+
 
 
