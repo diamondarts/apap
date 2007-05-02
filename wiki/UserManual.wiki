@@ -40,5 +40,6 @@ java org.apache.xalan.xslt.Process -in zapap.xml -xsl apap.xsl -param workdir c:
 
 The processor will then have generated an API documentation in the specified directory. 
 
+= Contact =
 
-
+Please post questions or any other feedback at [https://forums.sdn.sap.com/thread.jspa?threadID=389672 this SAP Developer Network forum thread].
