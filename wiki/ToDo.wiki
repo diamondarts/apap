@@ -20,3 +20,8 @@ The stylesheets should get the following improvements:
   * The following repository objects have to be added: Enqueue objects, reports
 
 Furthermore, the should be another set of stylesheets which convert the XML to PDF (or, more specifically, to [http://en.wikipedia.org/wiki/XSL-FO XSL Formatting Objects] which may then be used to generate PDFs).
+
+
+= Contact =
+
+Please post questions or any other feedback at [https://forums.sdn.sap.com/thread.jspa?threadID=389672 this SAP Developer Network forum thread].
