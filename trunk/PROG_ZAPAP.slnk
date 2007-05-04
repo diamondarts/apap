@@ -1,14 +1,23 @@
-ï»¿<?xml version="1.0" encoding="iso-8859-1"?>
-<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070426" VERN="000019" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070426" STIME="124525" IDATE="20070426" ITIME="124525" UCCHECK="X">
+<?xml version="1.0" encoding="iso-8859-1"?>
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070504" VERN="000058" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070504" STIME="112037" IDATE="20070504" ITIME="112037" UCCHECK="X">
  <textPool>
   <language SPRAS="E">
-   <textElement ID="R" ENTRY="Generate an XML file of a development class" LENGTH="43 "/>
+   <textElement ID="I" KEY="REP" ENTRY="Repository objects" LENGTH="20 "/>
+   <textElement ID="R" ENTRY="Generate an XML file of repository objects" LENGTH="42 "/>
    <textElement ID="S" KEY="P_APPL" ENTRY="        Application name" LENGTH="24 "/>
+   <textElement ID="S" KEY="P_CLAS" ENTRY="        Class" LENGTH="13 "/>
+   <textElement ID="S" KEY="P_DOMA" ENTRY="        Domain" LENGTH="14 "/>
+   <textElement ID="S" KEY="P_DTEL" ENTRY="        Data element" LENGTH="20 "/>
+   <textElement ID="S" KEY="P_ENQU" ENTRY="        Enqueue object" LENGTH="22 "/>
    <textElement ID="S" KEY="P_FILE" ENTRY="        Download to" LENGTH="19 "/>
+   <textElement ID="S" KEY="P_FUGR" ENTRY="        Function group" LENGTH="22 "/>
+   <textElement ID="S" KEY="P_INTF" ENTRY="        Interface" LENGTH="17 "/>
    <textElement ID="S" KEY="P_LANGU" ENTRY="        Language" LENGTH="16 "/>
+   <textElement ID="S" KEY="P_RECURS" ENTRY="        Recursively select subpackages" LENGTH="38 "/>
    <textElement ID="S" KEY="P_SYSCNT" ENTRY="        Include system table content" LENGTH="36 "/>
+   <textElement ID="S" KEY="P_TABL" ENTRY="        Table / structure" LENGTH="25 "/>
+   <textElement ID="S" KEY="P_TTYP" ENTRY="        Table type" LENGTH="18 "/>
    <textElement ID="S" KEY="S_DEVCLS" ENTRY="D       Package" LENGTH="15 "/>
-   <textElement ID="S" KEY="S_OBJECT" ENTRY="D       Object Type" LENGTH="19 "/>
   </language>
  </textPool>
  <source>*&amp;---------------------------------------------------------------------*
@@ -17,7 +26,7 @@
 *&amp;---------------------------------------------------------------------*
 *
 * APAP - Generate javadoc-style documentation for SAP repository objects
-* Copyright (C) 2007  BjÃ¶rn Harmen Gerth
+* Copyright (C) 2007  Björn Harmen Gerth
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -54,7 +63,8 @@ TYPES:
     low    TYPE tadir-object,
     high   TYPE tadir-object,
   END OF ys_selopt,
-  yl_selopt TYPE TABLE OF ys_selopt.
+  yl_selopt TYPE TABLE OF ys_selopt,
+  yl_devc   TYPE TABLE OF tdevc-devclass.
 
 *----------------------------------------------------------------------*
 *       CLASS ycl_generator DEFINITION
@@ -71,17 +81,22 @@ CLASS ycl_generator DEFINITION.
       seos.
 
     DATA:
-      mt_output TYPE sotr_texts,
-      mr_output TYPE REF TO string,
-      mt_tags   TYPE sotr_texts,
-      mc_langu  TYPE sy-langu,
-      mt_selopt TYPE yl_selopt.
+      mt_output   TYPE sotr_texts,
+      mr_output   TYPE REF TO string,
+      mt_tags     TYPE sotr_texts,
+      mc_langu    TYPE sy-langu,
+      mt_selopt   TYPE yl_selopt,
+      mt_packages TYPE yl_devc,
+      mb_recurse  TYPE abap_bool.
 
     METHODS:
       constructor
         IMPORTING
-          ic_langu  TYPE sy-langu
-          it_selopt TYPE yl_selopt OPTIONAL,
+          ic_langu   TYPE sy-langu
+          it_selopt  TYPE yl_selopt OPTIONAL
+          ib_recurse TYPE abap_bool DEFAULT abap_false,
+     process_packages
+       IMPORTING it_packages TYPE yl_devc,
      process_clas
        IMPORTING ic_name TYPE c,
      process_devc
@@ -133,7 +148,7 @@ CLASS ycl_generator DEFINITION.
           ic_function  TYPE c
           ic_tag       TYPE string
           it_docu      TYPE rsfb_fdo
-          it_parameter TYPE table
+          it_parameter TYPE STANDARD TABLE
           ic_parmkind  TYPE funct-kind DEFAULT &apos;P&apos;
         CHANGING
           cs_wa        TYPE any,
@@ -148,6 +163,9 @@ CLASS ycl_generator DEFINITION.
           i_field  TYPE any
         RETURNING
           value(ec_value) TYPE string,
+      convert_entities
+        IMPORTING ic_value TYPE any
+        RETURNING value(ec_value) TYPE string,
       get_attribute_name
         IMPORTING ic_name TYPE c
         RETURNING value(ec_name) TYPE string,
@@ -175,28 +193,53 @@ CLASS ycl_generator DEFINITION.
         RETURNING value(ec_superclass) TYPE seoclsname.
 ENDCLASS.                    &quot;ycl_generator DEFINITION
 
-DATA:
-  gc_devc      TYPE tdevc-devclass,
-  gc_object    TYPE tadir-object.
-
+DATA gc_devc   TYPE tdevc-devclass.
 PARAMETERS:
 * text: &apos;Application name&apos;
   p_appl       TYPE cvers_ref-desc_text.
 SELECT-OPTIONS:
 * text from ddic
-  s_devcls     FOR gc_devc OBLIGATORY,
-* text from ddic
-  s_object     FOR gc_object.
+  s_devcls     FOR gc_devc OBLIGATORY.
 PARAMETERS:
+* text: &apos;Recursively select subpackages&apos;
+  p_recurs     TYPE abap_bool AS CHECKBOX,
 * text: &apos;Language&apos;
   p_langu      TYPE sy-langu  DEFAULT sy-langu,
-* text: &apos;Include system table content&apos;
-  p_syscnt     TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
 * text: &apos;Download to&apos;
   p_file       TYPE rlgrap-filename.
+
+* Add all supported repository objects here
+SELECTION-SCREEN BEGIN OF BLOCK bl1 WITH FRAME TITLE text-rep.
+PARAMETERS:
+* text: &apos;Table / structure&apos;
+  p_tabl   TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+SELECTION-SCREEN BEGIN OF BLOCK bl2 WITH FRAME.
+PARAMETERS:
+* text: &apos;Include system table content&apos;
+  p_syscnt TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+SELECTION-SCREEN END OF BLOCK bl2.
+PARAMETERS:
+* text: &apos;Table type&apos;
+  p_ttyp   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Data element&apos;
+  p_dtel   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Domain&apos;
+  p_doma   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Enqueue object&apos;
+  p_enqu   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Class&apos;
+  p_clas   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Interface&apos;
+  p_intf   TYPE abap_bool AS CHECKBOX DEFAULT abap_true,
+* text: &apos;Function group&apos;
+  p_fugr   TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+SELECTION-SCREEN END OF BLOCK bl1.
+
 DATA:
   gr_generator TYPE REF TO ycl_generator,
-  gs_selopt    LIKE LINE OF s_object,
+  gt_selopt    TYPE TABLE OF ys_selopt,
+  gs_selopt    LIKE LINE OF gt_selopt,
+  gt_packages  TYPE yl_devc,
   gc_file      TYPE string,
   gc_path      TYPE string,
   gc_fullpath  TYPE string,
@@ -205,26 +248,6 @@ FIELD-SYMBOLS:
   &lt;t&gt;          LIKE LINE OF gr_generator-&gt;mt_output.
 
 
-INITIALIZATION.
-* Add all supported repository objects here
-  gs_selopt-sign   = &apos;I&apos;.
-  gs_selopt-option = &apos;EQ&apos;.
-  gs_selopt-low    = &apos;CLAS&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;DOMA&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;DTEL&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;ENQU&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;FUGR&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;INTF&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;TABL&apos;.
-  APPEND gs_selopt TO s_object.
-  gs_selopt-low    = &apos;TTYP&apos;.
-  APPEND gs_selopt TO s_object.
 
 *-----------------------------------------------------------------------
 * Display a file picker window
@@ -260,8 +283,52 @@ AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
 
 START-OF-SELECTION.
 
-  CREATE OBJECT gr_generator EXPORTING ic_langu  = p_langu
-                                       it_selopt = s_object[].
+* Add all supported repository objects here
+  gs_selopt-sign   = &apos;I&apos;.
+  gs_selopt-option = &apos;EQ&apos;.
+  IF p_tabl EQ abap_true.
+    gs_selopt-low    = &apos;TABL&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_ttyp EQ abap_true.
+    gs_selopt-low    = &apos;TTYP&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_dtel EQ abap_true.
+    gs_selopt-low    = &apos;DTEL&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_doma EQ abap_true.
+    gs_selopt-low    = &apos;DOMA&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_enqu EQ abap_true.
+    gs_selopt-low    = &apos;ENQU&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_clas EQ abap_true.
+    gs_selopt-low    = &apos;CLAS&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_intf EQ abap_true.
+    gs_selopt-low    = &apos;INTF&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF p_fugr EQ abap_true.
+    gs_selopt-low    = &apos;FUGR&apos;.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+  IF gt_selopt IS INITIAL.
+*   Add a dummy select option. Otherwise the table is empty, which would
+*   result in the selection of ALL possible repository objects.
+    gs_selopt-low    = space.
+    APPEND gs_selopt TO gt_selopt.
+  ENDIF.
+
+
+  CREATE OBJECT gr_generator EXPORTING ic_langu   = p_langu
+                                       it_selopt  = gt_selopt
+                                       ib_recurse = p_recurs.
 
   APPEND &apos;&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&apos;
   TO gr_generator-&gt;mt_output.
@@ -274,14 +341,9 @@ START-OF-SELECTION.
   ENDIF.
 
   SELECT devclass FROM tdevc
-                  INTO gc_devc
-                 WHERE devclass IN s_devcls
-                   AND mainpack = abap_true.
-
-    CALL METHOD gr_generator-&gt;process_devc
-      EXPORTING
-        ic_name = gc_devc.
-  ENDSELECT.
+            INTO TABLE gt_packages
+                 WHERE devclass IN s_devcls.
+  CALL METHOD gr_generator-&gt;process_packages( gt_packages ).
 
   APPEND &apos;&lt;/application&gt;&apos; TO gr_generator-&gt;mt_output.
 
@@ -314,8 +376,9 @@ CLASS ycl_generator IMPLEMENTATION.
 
     FIELD-SYMBOLS &lt;s&gt; LIKE LINE OF mt_selopt.
 
-    mc_langu  = ic_langu.
-    mt_selopt = it_selopt.
+    mc_langu   = ic_langu.
+    mt_selopt  = it_selopt.
+    mb_recurse = ib_recurse.
 
 *   The TADIR entry of a package XY contains itself as development class
 *   =&gt; endless loop, so exclude package from selection
@@ -325,6 +388,17 @@ CLASS ycl_generator IMPLEMENTATION.
     &lt;s&gt;-low    = &apos;DEVC&apos;.
 
   ENDMETHOD.                    &quot;constructor
+
+  METHOD process_packages.
+
+    FIELD-SYMBOLS &lt;p&gt; LIKE LINE OF mt_packages.
+
+    mt_packages = it_packages.
+    LOOP AT mt_packages ASSIGNING &lt;p&gt;.
+      CALL METHOD process_devc( &lt;p&gt; ).
+    ENDLOOP.
+
+  ENDMETHOD.                    &quot;process_packages
 
   METHOD process_clas.
 
@@ -396,15 +470,20 @@ CLASS ycl_generator IMPLEMENTATION.
   METHOD process_devc.
 
     DATA:
-      ls_tadir TYPE tadir,
-      ls_tdevc TYPE v_rdevct,
+      ls_tadir    TYPE tadir,
+      ls_tdevc    TYPE tdevc,
       lc_devclass TYPE tdevc-devclass.
 
 
-    SELECT SINGLE * FROM v_rdevct
-                    INTO ls_tdevc
-                   WHERE devclass EQ ic_name
-                     AND spras    EQ mc_langu.
+    CALL FUNCTION &apos;TR_DEVCLASS_GET&apos;
+      EXPORTING
+        iv_devclass = ic_name
+        iv_langu    = mc_langu
+      IMPORTING
+        es_tdevc    = ls_tdevc
+      EXCEPTIONS
+        OTHERS      = 0.
+
     CALL METHOD write_tag
       EXPORTING
         ic_tag   = &apos;package&apos;
@@ -412,13 +491,28 @@ CLASS ycl_generator IMPLEMENTATION.
         ib_end   = abap_false.
 
 
-*   Process subpackages
+*   list all subpackages with descriptions
     SELECT devclass FROM tdevc
                     INTO lc_devclass
                    WHERE parentcl EQ ic_name.
-      CALL METHOD process_devc
+      CALL FUNCTION &apos;TR_DEVCLASS_GET&apos;
         EXPORTING
-          ic_name = lc_devclass.
+          iv_devclass = lc_devclass
+          iv_langu    = mc_langu
+        IMPORTING
+          es_tdevc    = ls_tdevc
+        EXCEPTIONS
+          OTHERS      = 0.
+      CALL METHOD write_tag
+        EXPORTING
+          ic_tag   = &apos;subpackage&apos;
+          is_struc = ls_tdevc.
+
+*     If recursion is enabled, append subpackages to package list if
+*     not yet included
+      IF mb_recurse EQ abap_true.
+        COLLECT lc_devclass INTO mt_packages.
+      ENDIF.
     ENDSELECT.
 
 *   Process all contained repository objects
@@ -593,7 +687,9 @@ CLASS ycl_generator IMPLEMENTATION.
     FIELD-SYMBOLS:
       &lt;f&gt;      LIKE LINE OF lt_funcs.
 
-    SELECT SINGLE * FROM info_fugrz INTO ls_libg WHERE area EQ ic_name.
+    SELECT SINGLE * FROM info_fugrz
+                    INTO ls_libg
+                   WHERE area EQ ic_name.                   &quot;#EC *
     CHECK sy-subrc EQ 0.
 
     CALL METHOD write_tag
@@ -664,13 +760,22 @@ CLASS ycl_generator IMPLEMENTATION.
         description TYPE funct-stext,
       END OF ls_tbl.
 
-*      lt_params TYPE TABLE OF rfc_funint.
-
+*   First SELECT statement is with arbitrary language so we make sure
+*   we get an entry of the function if there is one. If we would
+*   pass MC_LANGU at this point, the SELECT may fail altogether.
     SELECT SINGLE * FROM v_fdirt
                     INTO ls_func
-                   WHERE funcname EQ ic_name
-                     AND spras    EQ mc_langu.
+                   WHERE funcname EQ ic_name.               &quot;#EC *
     CHECK sy-subrc EQ 0.
+    IF ls_func-spras NE mc_langu.
+*     Try to update the language-dependent fields with requested
+*     language. If not available, the fields keep the content from the
+*     previous SELECT statement.
+      SELECT SINGLE spras stext FROM v_fdirt
+                    INTO (ls_func-spras, ls_func-stext)
+                   WHERE funcname EQ ic_name
+                     AND spras    EQ mc_langu.              &quot;#EC *
+    ENDIF.
 
     CALL FUNCTION &apos;FUNCTION_IMPORT_DOKU&apos;
       EXPORTING
@@ -981,25 +1086,13 @@ CLASS ycl_generator IMPLEMENTATION.
         IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
         SHIFT &lt;d&gt; LEFT DELETING LEADING &apos;&amp;&apos;.
         REPLACE &apos;&amp;&apos; IN &lt;d&gt; WITH space.
-        TRANSLATE &lt;d&gt; TO LOWER CASE.
+        TRANSLATE &lt;d&gt; TO LOWER CASE.                      &quot;#EC SYNTCHAR
         CALL METHOD write_tag
           EXPORTING
             ic_tag = &lt;d&gt;
             ib_end = abap_false.
       ELSE.
-        REPLACE ALL OCCURRENCES OF:
-          &apos;&lt;&apos;  IN &lt;d&gt; WITH &apos;&amp;lt;&apos;,
-          &apos;&gt;&apos;  IN &lt;d&gt; WITH &apos;&amp;gt;&apos;,
-          &apos;&amp;&apos;  IN &lt;d&gt; WITH &apos;&amp;amp;&apos;,
-          &apos;&quot;&apos;  IN &lt;d&gt; WITH &apos;&amp;quot;&apos;,
-          &apos;&apos;&apos;&apos; IN &lt;d&gt; WITH &apos;&amp;apos;&apos;,
-          &apos;Ã„&apos;  IN &lt;d&gt; WITH &apos;Ae&apos;,
-          &apos;Ã–&apos;  IN &lt;d&gt; WITH &apos;Oe&apos;,
-          &apos;Ãœ&apos;  IN &lt;d&gt; WITH &apos;Ue&apos;,
-          &apos;Ã¤&apos;  IN &lt;d&gt; WITH &apos;ae&apos;,
-          &apos;Ã¶&apos;  IN &lt;d&gt; WITH &apos;oe&apos;,
-          &apos;Ã¼&apos;  IN &lt;d&gt; WITH &apos;ue&apos;,
-          &apos;ÃŸ&apos;  IN &lt;d&gt; WITH &apos;ss&apos;.
+        &lt;d&gt; = convert_entities( &lt;d&gt; ).
         APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
       ENDIF.
     ENDLOOP.
@@ -1097,7 +1190,8 @@ CLASS ycl_generator IMPLEMENTATION.
           EXCEPTIONS
             OTHERS    = 0.
       ELSE.
-        READ TABLE lt_attrs INTO ls_attr WITH KEY cmpname = &lt;att&gt;-name.
+        READ TABLE lt_attrs INTO ls_attr
+          WITH KEY cmpname = &lt;att&gt;-name.                    &quot;#EC *
       ENDIF.
 
       MOVE-CORRESPONDING &lt;att&gt; TO ls_attd.
@@ -1168,7 +1262,8 @@ CLASS ycl_generator IMPLEMENTATION.
           EXCEPTIONS
             OTHERS     = 0.
       ELSE.
-        READ TABLE lt_meth INTO ls_meth WITH KEY cmpname = &lt;mth&gt;-name.
+        READ TABLE lt_meth INTO ls_meth
+          WITH KEY cmpname = &lt;mth&gt;-name.                    &quot;#EC *
         REFRESH: lt_methpar2, lt_methexc2.
         LOOP AT lt_methpar ASSIGNING &lt;par&gt;
           WHERE cmpname EQ ls_meth-cmpname.
@@ -1284,7 +1379,8 @@ CLASS ycl_generator IMPLEMENTATION.
           EXCEPTIONS
             OTHERS     = 0.
       ELSE.
-        READ TABLE lt_evt INTO ls_event WITH KEY cmpname = &lt;evt&gt;-name.
+        READ TABLE lt_evt INTO ls_event
+          WITH KEY cmpname = &lt;evt&gt;-name.                    &quot;#EC *
         REFRESH lt_methpar2.
         LOOP AT lt_methpar ASSIGNING &lt;par&gt;
           WHERE cmpname EQ ls_event-cmpname.
@@ -1516,7 +1612,7 @@ CLASS ycl_generator IMPLEMENTATION.
 
 
     CASE get_tag( ).
-      WHEN &apos;package&apos;.
+      WHEN &apos;package&apos; OR &apos;subpackage&apos;.
         transl &apos;DEVCLASS&apos; &apos;name&apos;.
         transl &apos;CTEXT&apos; &apos;description&apos;.
       WHEN &apos;class&apos; OR &apos;subclass&apos; OR &apos;superclass&apos;.
@@ -1599,11 +1695,14 @@ CLASS ycl_generator IMPLEMENTATION.
 *&amp;---------------------------------------------------------------------*
   METHOD get_attribute_value.
 
-    DATA lc(100) TYPE c.
+    DATA:
+      lc(100) TYPE c,
+      ls_address TYPE bapiaddr3,
+      lt_return TYPE bapiret2_t.
 
     WRITE i_field TO lc LEFT-JUSTIFIED.
 
-    IF lc IS INITIAL.
+    IF lc IS INITIAL. &quot;initial in character mode, i.e. lc is space
 
       CHECK get_tag( ) EQ &apos;fixed-value&apos; OR
             get_tag( ) EQ &apos;entry&apos;.
@@ -1612,43 +1711,80 @@ CLASS ycl_generator IMPLEMENTATION.
       EXIT.
 
     ELSEIF lc EQ &apos;00.00.0000&apos;.
-
+*     Ignore initial dates
       EXIT.
 
+    ELSEIF ic_name EQ &apos;author&apos; OR
+           ic_name EQ &apos;changedby&apos;.
+
+      CALL FUNCTION &apos;BAPI_USER_GET_DETAIL&apos;
+        EXPORTING
+          username = i_field
+        IMPORTING
+          address  = ls_address
+        TABLES
+          return   = lt_return.
+      IF NOT ls_address-firstname IS INITIAL OR
+         NOT ls_address-lastname IS INITIAL.
+        CONCATENATE ls_address-firstname ls_address-lastname INTO lc
+          SEPARATED BY space.
+        CONDENSE lc.
+      ENDIF.
+
     ENDIF.
 
-    CASE get_tag( ).
-      WHEN &apos;attribute&apos; OR &apos;method&apos;.
-        IF ic_name EQ &apos;scope&apos;.
-          CASE i_field.
-            WHEN &apos;0&apos;. lc = &apos;instance&apos;.
-            WHEN &apos;1&apos;. lc = &apos;static&apos;.
-            WHEN &apos;2&apos;. lc = &apos;constant&apos;.
-          ENDCASE.
-        ENDIF.
-    ENDCASE.
-
-
-    IF lc CA &apos;Ã„Ã–ÃœÃ¤Ã¶Ã¼ÃŸ&lt;&gt;&amp;&quot;&apos;&apos;&apos;.
-      REPLACE ALL OCCURRENCES OF:
-        &apos;&lt;&apos;  IN lc WITH &apos;&amp;lt;&apos;,
-        &apos;&gt;&apos;  IN lc WITH &apos;&amp;gt;&apos;,
-        &apos;&amp;&apos;  IN lc WITH &apos;&amp;amp;&apos;,
-        &apos;&quot;&apos;  IN lc WITH &apos;&amp;quot;&apos;,
-        &apos;&apos;&apos;&apos; IN lc WITH &apos;&amp;apos;&apos;,
-        &apos;Ã„&apos;  IN lc WITH &apos;Ae&apos;,
-        &apos;Ã–&apos;  IN lc WITH &apos;Oe&apos;,
-        &apos;Ãœ&apos;  IN lc WITH &apos;Ue&apos;,
-        &apos;Ã¤&apos;  IN lc WITH &apos;ae&apos;,
-        &apos;Ã¶&apos;  IN lc WITH &apos;oe&apos;,
-        &apos;Ã¼&apos;  IN lc WITH &apos;ue&apos;,
-        &apos;ÃŸ&apos;  IN lc WITH &apos;ss&apos;.
-    ENDIF.
-
-    CONCATENATE &apos;&quot;&apos; lc &apos;&quot;&apos; INTO ec_value.
+    ec_value = convert_entities( lc ).
+    CONCATENATE &apos;&quot;&apos; ec_value &apos;&quot;&apos; INTO ec_value.
 
 
   ENDMETHOD.                    &quot;get_attribute_value
+
+
+  METHOD convert_entities.
+
+    ec_value = ic_value.
+
+    REPLACE ALL OCCURRENCES OF:
+* the ampersand must be replaced first, otherwise it will also be
+* replaced in following entity declarations (e.g. &gt; becomes &amp;amp;gt; ).
+      &apos;&amp;&apos;  IN ec_value WITH &apos;&amp;amp;&apos;,
+      &apos;&lt;&apos;  IN ec_value WITH &apos;&amp;lt;&apos;,
+      &apos;&gt;&apos;  IN ec_value WITH &apos;&amp;gt;&apos;,
+      &apos;&quot;&apos;  IN ec_value WITH &apos;&amp;quot;&apos;,
+      &apos;&apos;&apos;&apos; IN ec_value WITH &apos;&amp;apos;&apos;,
+      &apos;±&apos;  IN ec_value WITH &apos;&amp;#177;&apos;,
+      &apos;³&apos;  IN ec_value WITH &apos;&amp;#177;&apos;,
+      &apos;¶&apos;  IN ec_value WITH &apos;&amp;#182;&apos;,
+      &apos;¼&apos;  IN ec_value WITH &apos;&amp;#188;&apos;,
+      &apos;¿&apos;  IN ec_value WITH &apos;&amp;#191;&apos;,
+      &apos;Ä&apos;  IN ec_value WITH &apos;&amp;#196;&apos;,
+      &apos;Ö&apos;  IN ec_value WITH &apos;&amp;#214;&apos;,
+      &apos;Ü&apos;  IN ec_value WITH &apos;&amp;#220;&apos;,
+      &apos;ß&apos;  IN ec_value WITH &apos;&amp;#223;&apos;,
+      &apos;à&apos;  IN ec_value WITH &apos;&amp;#224;&apos;,
+      &apos;á&apos;  IN ec_value WITH &apos;&amp;#225;&apos;,
+      &apos;â&apos;  IN ec_value WITH &apos;&amp;#226;&apos;,
+      &apos;ã&apos;  IN ec_value WITH &apos;&amp;#227;&apos;,
+      &apos;ä&apos;  IN ec_value WITH &apos;&amp;#228;&apos;,
+      &apos;æ&apos;  IN ec_value WITH &apos;&amp;#230;&apos;,
+      &apos;ç&apos;  IN ec_value WITH &apos;&amp;#231;&apos;,
+      &apos;è&apos;  IN ec_value WITH &apos;&amp;#233;&apos;,
+      &apos;é&apos;  IN ec_value WITH &apos;&amp;#234;&apos;,
+      &apos;ê&apos;  IN ec_value WITH &apos;&amp;#235;&apos;,
+      &apos;ì&apos;  IN ec_value WITH &apos;&amp;#236;&apos;,
+      &apos;í&apos;  IN ec_value WITH &apos;&amp;#237;&apos;,
+      &apos;î&apos;  IN ec_value WITH &apos;&amp;#238;&apos;,
+      &apos;ñ&apos;  IN ec_value WITH &apos;&amp;#241;&apos;,
+      &apos;ó&apos;  IN ec_value WITH &apos;&amp;#243;&apos;,
+      &apos;ô&apos;  IN ec_value WITH &apos;&amp;#244;&apos;,
+      &apos;õ&apos;  IN ec_value WITH &apos;&amp;#245;&apos;,
+      &apos;ö&apos;  IN ec_value WITH &apos;&amp;#246;&apos;,
+      &apos;ù&apos;  IN ec_value WITH &apos;&amp;#249;&apos;,
+      &apos;ú&apos;  IN ec_value WITH &apos;&amp;#250;&apos;,
+      &apos;ü&apos;  IN ec_value WITH &apos;&amp;#252;&apos;.
+
+
+  ENDMETHOD.                    &quot;convert_entities
 
 
   METHOD get_superclass .
