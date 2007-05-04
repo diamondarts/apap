@@ -4,6 +4,7 @@
 = Introduction =
 
 At my company, we have a lot of customer-specific development. Each project is usually finished with one or more documents which include detailed descriptions of SAP repository objects, e.g. the structure of database tables or function module interfaces.
+
 Problems identified in this process: 
  * The definitions are manually copied from the SAP workbench into the document, which is a tedious task.
  * Only short descriptions of the objects are provided, workbench features such as the documentation of data elements, function groups and modules are hardly ever used. Instead, the consultant may create a more in-depth documentation of the object in the manual, which results in a separation of the objects (in the SAP system) and their description (in the document on a file system).
@@ -11,7 +12,9 @@ Problems identified in this process:
 
 
 This situation may be improved by automatically creating documentation from the repository objects. The Application Package Abstract Processor (APAP) described in this paper is a two-step process to extract the information from the SAP system and generate documentation in a specified format, currently HTML.
+
 In the first step, an ABAP report downloads an XML file with the information of all repository objects of a selected set of packages. In the following step, an XSLT processor transforms the file into a collection of HTML pages.
+
 Advantages of this process:
  * Easy to use, because only a few clicks are required to generate the HTML output.
  * The ABAP reports includes the documentation of various repository objects in the output, e.g. function modules, classes, class attributes and methods. In addition, the documentation may appear more than one time. For instance, the documentation of a data element is added to each structure which contains that data element as a field. It does pay out for the developer to provide the documentation in the SAP system.
@@ -29,9 +32,13 @@ This step requires that the report ZAPAP is present in your SAP system. It may b
 http://apap.googlecode.com/files/selectionscreen-0.2.jpg
 
 At the selection screen, you may enter an arbitrary name for the "application", which will be the outermost tag of the output file. Select one or more packages to be included into the output file. If your project contains a hierarchy of packages, it may be simpler to enter the top-level package and let the report select the subpackages recursively.
+
 The following checkboxes allow the user to specify which repository objects will be included in the output, where system customising tables may additionally feature their content.
+
 The final fields of the selection screen define the language in which short descriptions and documentation will be retrieved and the destination file.
-The report may run a while, depending on the size of the selected packages. It will then display the created output as a list while saving it to the specified destination file. 
+
+The report may run a while, depending on the size of the selected packages. It will then display the created output as a list while saving it to the specified destination file.
+ 
 Here is an extract of a sample output file: 
 
 {{{
@@ -65,6 +72,7 @@ Use the XSLT processor to transform the output file from above with the styleshe
 java org.apache.xalan.xslt.Process -in zapap.xml -xsl apap.xsl -param workdir c:\temp\
 }}}
 The processor will then generate the API documentation in the specified directory. As in the well known [http://java.sun.com/javase/6/docs/api/ javadoc HTML API documentation], the pages are divided into a frame with all packages in the upper left-hand side, a frame with all objects of the selected package in the lower left-hand side and a main frame with details of the current repository object. 
+
 The content of the main frame differs between the repository objects. Examples:
  * Domains may contain a list of fixed values or a link to a value table. http://apap.googlecode.com/files/sample_doma-0.2.jpg
 
