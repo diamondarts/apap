@@ -1,0 +1,28 @@
+#summary Where APAP originated
+#labels Featured,Phase-Requirements
+
+= Introduction =
+
+At my company, we have a lot of customer-specific development. Each project is usually finished with one or more documents which include detailed descriptions of SAP repository objects, e.g. the structure of database tables or function module interfaces.
+Problems identified in this process: 
+ * The definitions are manually copied from the SAP workbench into the document, which is a tedious task.
+ * Only short descriptions of the objects are provided, workbench features such as the documentation of data elements, function groups and modules are hardly ever used. Instead, the consultant may create a more in-depth documentation of the object in the manual, which results in a separation of the objects (in the SAP system) and their description (in the document on a file system).
+ * If a change request requires a change of repository objects, the document needs to be updated, again in a tedious manual task. 
+
+
+This situation may be improved by automatically creating documentation from the repository objects. The Application Package Abstract Processor (APAP) described in this paper is a two-step process to extract the information from the SAP system and generate documentation in a specified format, currently HTML.
+In the first step, an ABAP report downloads an XML file with the information of all repository objects of a selected set of packages. In the following step, an XSLT processor transforms the file into a collection of HTML pages.
+Advantages of this process:
+ * Easy to use, because only a few clicks are required to generate the HTML output.
+ * The ABAP reports includes the documentation of various repository objects in the output, e.g. function modules, classes, class attributes and methods. In addition, the documentation may appear more than one time. For instance, the documentation of a data element is added to each structure which contains that data element as a field. It does pay out for the developer to provide the documentation in the SAP system.
+ * XML and XSLT are up-to-date technologies.
+ * The HTML output includes a Cascading Stylesheet, which may be adapted to the corporate image.
+ * The transformation of the XML file to HTML is distributed among several stylesheet files. Since they themselves are XML files, it is possible to adapt the styleheets to one's own needs where the adaption of the CSS file does not suffice.
+ * A different set of stylesheets may produce different output, e.g. PDF, from the same source - automatically as well.
+ * APAP is an open-source project such that the community may contribute extensions for further repository objects or target formats.
+
+= Contact =
+
+Please post questions or any other feedback at [https://forums.sdn.sap.com/thread.jspa?threadID=389672 this SAP Developer Network forum thread].
+
+
