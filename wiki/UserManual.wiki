@@ -14,10 +14,12 @@ Follow these steps:
 If you have not yet done so, import the report ZAPAP into your SAP system. You can either use [http://www.saplink.org SAPlink] to import the Slinkee [http://apap.googlecode.com/svn/trunk/PROG_ZAPAP.slnk PROG_ZAPAP.slnk] or create the report ZAPAP with transaction SE38 and copy'n'paste the report text [http://apap.googlecode.com/svn/trunk/PROG_ZAPAP.txt PROG_ZAPAP.txt] into it.
 
 The selection screen
-  * *Package*: Choose one or more packages to be exported. Currently, only main packages are evaluated, i.e. where the "Main Package" flag is set.
-  * *Object type*: Select the repository object types to be included in the output. Currently the default values are the supported types.
-  * *Language*: Enter the language in which the object descriptions and documentations will be retrieved.
+  * *Application*: Enter an arbitrary name which will show up in the upper right-hand corner of the HTML pages (optional)
+  * *Package*: Choose one or more packages to be exported.
+  * *Recursively select subpackages*: In case you have a package hierarchy, packages will be processed recursively. In this case, it suffices to enter the top-level package in the *Package* field.
+  * *Object types*: Select the repository object types to be included in the output. 
   * *Include system table content*: Mark this checkbox if you want to add the content of system tables (type S') in the output file.
+  * *Language*: Enter the language in which the object descriptions and documentations will be retrieved.
   * *Download to*: Use the F4 help to select a destination file to write the output to.
 
 The report may run a while, depending on the size of the selected packages. It will then display the created output as a list while saving it to the specified destination file.
