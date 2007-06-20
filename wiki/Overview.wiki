@@ -89,8 +89,7 @@ One goal of the project is to encourage a developer to include more documentatio
 
 = Contact =
 
-Please post questions or any other feedback at [https://forums.sdn.sap.com/thread.jspa?threadID=389672 this SAP Developer Network forum thread].
-
+Please post questions or any other feedback at [https://wiki.sdn.sap.com/wiki/x/X4Y this article in the SAP Developer Network code gallery].
 
 
 
