@@ -24,4 +24,4 @@ Furthermore, the should be another set of stylesheets which convert the XML to P
 
 = Contact =
 
-Please post questions or any other feedback at [https://forums.sdn.sap.com/thread.jspa?threadID=389672 this SAP Developer Network forum thread].
+Please post questions or any other feedback at [https://wiki.sdn.sap.com/wiki/x/X4Y this article in the SAP Developer Network code gallery].
