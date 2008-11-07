@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20070504" VERN="000058" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20070504" STIME="112037" IDATE="20070504" ITIME="112037" UCCHECK="X">
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20081107" VERN="000072" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20081107" STIME="162212" IDATE="20081107" ITIME="162212" UCCHECK="X">
  <textPool>
   <language SPRAS="E">
    <textElement ID="I" KEY="REP" ENTRY="Repository objects" LENGTH="20 "/>
@@ -50,8 +50,8 @@
 REPORT zapap NO STANDARD PAGE HEADING LINE-SIZE 255.
 
 DEFINE transl.
-  if ic_name eq &amp;1.
-    check &amp;2 ne space.
+  if ic_name = &amp;1.
+    check &amp;2 &lt;&gt; space.
     ec_name = &amp;2.
   endif.
 END-OF-DEFINITION.
@@ -81,20 +81,21 @@ CLASS ycl_generator DEFINITION.
       seos.
 
     DATA:
-      mt_output   TYPE sotr_texts,
-      mr_output   TYPE REF TO string,
-      mt_tags     TYPE sotr_texts,
       mc_langu    TYPE sy-langu,
       mt_selopt   TYPE yl_selopt,
       mt_packages TYPE yl_devc,
-      mb_recurse  TYPE abap_bool.
+      mb_recurse  TYPE abap_bool,
+      mt_stack    TYPE STANDARD TABLE OF REF TO if_ixml_element,
+      mr_current  TYPE REF TO if_ixml_element,
+      mr_xml_doc  TYPE REF TO if_ixml_document.
 
     METHODS:
       constructor
         IMPORTING
           ic_langu   TYPE sy-langu
           it_selopt  TYPE yl_selopt OPTIONAL
-          ib_recurse TYPE abap_bool DEFAULT abap_false,
+          ib_recurse TYPE abap_bool DEFAULT abap_false
+          ic_appname TYPE csequence,
      process_packages
        IMPORTING it_packages TYPE yl_devc,
      process_clas
@@ -163,9 +164,6 @@ CLASS ycl_generator DEFINITION.
           i_field  TYPE any
         RETURNING
           value(ec_value) TYPE string,
-      convert_entities
-        IMPORTING ic_value TYPE any
-        RETURNING value(ec_value) TYPE string,
       get_attribute_name
         IMPORTING ic_name TYPE c
         RETURNING value(ec_name) TYPE string,
@@ -173,10 +171,8 @@ CLASS ycl_generator DEFINITION.
         IMPORTING ic_name TYPE c i_field TYPE any
         RETURNING value(ec_attribute) TYPE string,
       write_attributes
-        IMPORTING is_struc TYPE any
-        RETURNING value(ec_attr) TYPE string,
+        IMPORTING is_struc TYPE any,
       end_tag,
-      get_tag RETURNING value(ec_tag) TYPE string,
       write_tag
         IMPORTING
           ic_tag   TYPE string
@@ -244,8 +240,6 @@ DATA:
   gc_path      TYPE string,
   gc_fullpath  TYPE string,
   gi_action    TYPE i.
-FIELD-SYMBOLS:
-  &lt;t&gt;          LIKE LINE OF gr_generator-&gt;mt_output.
 
 
 
@@ -270,12 +264,12 @@ AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
       user_action          = gi_action
     EXCEPTIONS
       OTHERS               = 1.
-  IF sy-subrc NE 0.
+  IF sy-subrc &lt;&gt; 0.
     WRITE: / &apos;An error has occured picking a file&apos;.
     EXIT.
   ENDIF.
 
-  IF gi_action EQ cl_gui_frontend_services=&gt;action_ok.
+  IF gi_action = cl_gui_frontend_services=&gt;action_ok.
     p_file = gc_fullpath.
   ENDIF.
 
@@ -328,41 +322,43 @@ START-OF-SELECTION.
 
   CREATE OBJECT gr_generator EXPORTING ic_langu   = p_langu
                                        it_selopt  = gt_selopt
-                                       ib_recurse = p_recurs.
-
-  APPEND &apos;&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&apos;
-  TO gr_generator-&gt;mt_output.
-  IF p_appl IS INITIAL.
-    APPEND &apos;&lt;application&gt;&apos; TO gr_generator-&gt;mt_output.
-  ELSE.
-    CLEAR gc_file.
-    CONCATENATE &apos;&lt;application name=&quot;&apos; p_appl &apos;&quot;&gt;&apos; INTO gc_file.
-    APPEND gc_file TO gr_generator-&gt;mt_output.
-  ENDIF.
+                                       ib_recurse = p_recurs
+                                       ic_appname = p_appl.
 
   SELECT devclass FROM tdevc
             INTO TABLE gt_packages
                  WHERE devclass IN s_devcls.
   CALL METHOD gr_generator-&gt;process_packages( gt_packages ).
 
-  APPEND &apos;&lt;/application&gt;&apos; TO gr_generator-&gt;mt_output.
+  PERFORM display_and_download.
 
 
-  LOOP AT gr_generator-&gt;mt_output ASSIGNING &lt;t&gt;.
-    WRITE / &lt;t&gt;.
-  ENDLOOP.
+*&amp;---------------------------------------------------------------------*
+*&amp;      Form  display_and_download
+*&amp;---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM display_and_download.
+
+  DATA: lr_xml_doc TYPE REF TO cl_xml_document,
+        lr_node    TYPE REF TO if_ixml_node.
+
+  lr_node = gr_generator-&gt;mr_xml_doc-&gt;get_root( ).
+* The first node is the descriptor so we need to get the second
+  lr_node = lr_node-&gt;get_first_child( ).
+
+  CREATE OBJECT lr_xml_doc.
+  CALL METHOD lr_xml_doc-&gt;create_with_node( node = lr_node ).
+  CALL METHOD lr_xml_doc-&gt;set_encoding( &apos;UTF-8&apos; ).
+
 
   IF NOT p_file IS INITIAL.
-    gc_fullpath = p_file.
-    CALL METHOD cl_gui_frontend_services=&gt;gui_download
-      EXPORTING
-        filename = gc_fullpath
-      CHANGING
-        data_tab = gr_generator-&gt;mt_output
-      EXCEPTIONS
-        OTHERS   = 0.
+    CALL METHOD lr_xml_doc-&gt;export_to_file( filename = p_file ).
   ENDIF.
 
+  CALL METHOD lr_xml_doc-&gt;display( ).
+
+ENDFORM.                    &quot;display_and_download
 
 
 *----------------------------------------------------------------------*
@@ -374,18 +370,35 @@ CLASS ycl_generator IMPLEMENTATION.
 
   METHOD constructor.
 
-    FIELD-SYMBOLS &lt;s&gt; LIKE LINE OF mt_selopt.
+    DATA: lr_processor TYPE REF TO if_ixml,
+          ls_selopt    LIKE LINE OF mt_selopt,
+          lc_date(10)  TYPE c,
+          lc_str       TYPE string.
 
-    mc_langu   = ic_langu.
-    mt_selopt  = it_selopt.
-    mb_recurse = ib_recurse.
+    mc_langu     = ic_langu.
+    mt_selopt    = it_selopt.
+    mb_recurse   = ib_recurse.
+    lr_processor = cl_ixml=&gt;create( ).
+    mr_xml_doc   = lr_processor-&gt;create_document( ).
+    mr_current = mr_xml_doc-&gt;create_simple_element(
+      name = &apos;application&apos; parent = mr_xml_doc ).
+    INSERT mr_current INTO mt_stack INDEX 1.
+
+    lc_str = ic_appname.
+    CALL METHOD mr_current-&gt;set_attribute( name = &apos;name&apos;
+      value = lc_str ).
+    WRITE sy-datlo TO lc_date.
+    lc_str = lc_date.
+    CALL METHOD mr_current-&gt;set_attribute( name = &apos;extraction-date&apos;
+      value = lc_str ).
+
 
 *   The TADIR entry of a package XY contains itself as development class
 *   =&gt; endless loop, so exclude package from selection
-    INSERT INITIAL LINE INTO mt_selopt INDEX 1 ASSIGNING &lt;s&gt;.
-    &lt;s&gt;-sign   = &apos;E&apos;.
-    &lt;s&gt;-option = &apos;EQ&apos;.
-    &lt;s&gt;-low    = &apos;DEVC&apos;.
+    ls_selopt-sign   = &apos;E&apos;.
+    ls_selopt-option = &apos;EQ&apos;.
+    ls_selopt-low    = &apos;DEVC&apos;.
+    INSERT ls_selopt INTO mt_selopt INDEX 1.
 
   ENDMETHOD.                    &quot;constructor
 
@@ -1033,10 +1046,9 @@ CLASS ycl_generator IMPLEMENTATION.
     DATA:
       lt_tline  TYPE tlinetab,
       lc_object TYPE dokhl-object,
-      lt_docu   TYPE sotr_texts.
+      lc_docu   TYPE string.
     FIELD-SYMBOLS:
-      &lt;t&gt;       LIKE LINE OF lt_tline,
-      &lt;d&gt;       LIKE LINE OF lt_docu.
+      &lt;t&gt;       LIKE LINE OF lt_tline.
 
     lc_object = ic_name.
     CALL FUNCTION &apos;DOCU_GET&apos;
@@ -1064,13 +1076,15 @@ CLASS ycl_generator IMPLEMENTATION.
       ENDIF.
 
       CASE &lt;t&gt;-tdformat.
-        WHEN space.
-          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO &lt;d&gt; SEPARATED BY space.
+*        WHEN space.
+*          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO lc_docu SEPARATED BY space.
         WHEN &apos;=&apos;.
-          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO &lt;d&gt;.
+          CONCATENATE lc_docu &lt;t&gt;-tdline INTO lc_docu.
         WHEN OTHERS.
-          APPEND INITIAL LINE TO lt_docu ASSIGNING &lt;d&gt;.
-          &lt;d&gt; = &lt;t&gt;-tdline.
+          CONCATENATE lc_docu &lt;t&gt;-tdline INTO lc_docu SEPARATED BY
+space.
+*          APPEND INITIAL LINE TO lt_docu ASSIGNING &lt;d&gt;.
+*          &lt;d&gt; = &lt;t&gt;-tdline.
       ENDCASE.
 
     ENDLOOP.
@@ -1080,23 +1094,24 @@ CLASS ycl_generator IMPLEMENTATION.
       EXPORTING
         ic_tag = &apos;documentation&apos;
         ib_end = abap_false.
-    LOOP AT lt_docu ASSIGNING &lt;d&gt;.
-      REPLACE ALL OCCURRENCES OF &apos;&amp;VLINE&amp;&apos; IN &lt;d&gt; WITH &apos;|&apos;.
-      IF &lt;d&gt; CP &apos;&amp;*&amp;&apos;.
-        IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
-        SHIFT &lt;d&gt; LEFT DELETING LEADING &apos;&amp;&apos;.
-        REPLACE &apos;&amp;&apos; IN &lt;d&gt; WITH space.
-        TRANSLATE &lt;d&gt; TO LOWER CASE.                      &quot;#EC SYNTCHAR
-        CALL METHOD write_tag
-          EXPORTING
-            ic_tag = &lt;d&gt;
-            ib_end = abap_false.
-      ELSE.
-        &lt;d&gt; = convert_entities( &lt;d&gt; ).
-        APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
-      ENDIF.
-    ENDLOOP.
-    IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
+*    LOOP AT lt_docu ASSIGNING &lt;d&gt;.
+*      REPLACE ALL OCCURRENCES OF &apos;&amp;VLINE&amp;&apos; IN &lt;d&gt; WITH &apos;|&apos;.
+*      IF &lt;d&gt; CP &apos;&amp;*&amp;&apos;.
+*        IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
+*        SHIFT &lt;d&gt; LEFT DELETING LEADING &apos;&amp;&apos;.
+*        REPLACE &apos;&amp;&apos; IN &lt;d&gt; WITH space.
+*        TRANSLATE &lt;d&gt; TO LOWER CASE.                      &quot;#EC SYNTCHAR
+*        CALL METHOD write_tag
+*          EXPORTING
+*            ic_tag = &lt;d&gt;
+*            ib_end = abap_false.
+*      ELSE.
+*        &lt;d&gt; = convert_entities( &lt;d&gt; ).
+*        APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
+*      ENDIF.
+*    ENDLOOP.
+    CALL METHOD mr_current-&gt;set_value( value = lc_docu ).
+*    IF get_tag( ) &lt;&gt; &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
     CALL METHOD end_tag.
 
 
@@ -1125,7 +1140,6 @@ CLASS ycl_generator IMPLEMENTATION.
       ls_reltype    TYPE seocpdkey,
       ls_cmpkey     TYPE seocmpkey,
       ls_relkey     TYPE seorelkey,
-*      ls_class      TYPE seoc_class_r,
       lt_methpar2   TYPE seos_parameters_r,
       lt_methexc2   TYPE seos_exceptions_r,
       ls_attd       TYPE ys_attrdescr,
@@ -1514,21 +1528,20 @@ CLASS ycl_generator IMPLEMENTATION.
 
   METHOD write_tag.
 
-    DATA lc_str TYPE string.
+    DATA lr_element TYPE REF TO if_ixml_element.
 
-
-    APPEND INITIAL LINE TO mt_output REFERENCE INTO mr_output.
-    INSERT ic_tag INTO mt_tags INDEX 1.
+    lr_element = mr_xml_doc-&gt;create_simple_element( name = ic_tag
+      parent = mr_current ).
+    INSERT lr_element INTO mt_stack INDEX 1.
+    mr_current = lr_element.
 
     IF is_struc IS SUPPLIED.
-      lc_str = write_attributes( is_struc ).
+      CALL METHOD write_attributes( is_struc ).
     ENDIF.
 
     IF ib_end EQ abap_true.
-      CONCATENATE &apos;&lt;&apos; ic_tag lc_str &apos;/&gt;&apos; INTO mr_output-&gt;*.
-      DELETE mt_tags INDEX 1.
-    ELSE.
-      CONCATENATE &apos;&lt;&apos; ic_tag lc_str &apos;&gt;&apos; INTO mr_output-&gt;*.
+      DELETE mt_stack INDEX 1.
+      READ TABLE mt_stack INTO mr_current INDEX 1.
     ENDIF.
 
   ENDMETHOD.                    &quot;write_tag
@@ -1536,29 +1549,16 @@ CLASS ycl_generator IMPLEMENTATION.
 
   METHOD end_tag.
 
-    DATA lc_tag TYPE string.
-
-    APPEND INITIAL LINE TO mt_output REFERENCE INTO mr_output.
-    lc_tag = get_tag( ).
-    CONCATENATE &apos;&lt;/&apos; lc_tag &apos;&gt;&apos; INTO mr_output-&gt;*.
-    DELETE mt_tags INDEX 1.
+    DELETE mt_stack INDEX 1.
+    READ TABLE mt_stack INTO mr_current INDEX 1.
 
   ENDMETHOD.                    &quot;end_tag
 
 
-  METHOD get_tag.
-    READ TABLE mt_tags INTO ec_tag INDEX 1.
-  ENDMETHOD .                    &quot;get_tag
-
-
-*&amp;---------------------------------------------------------------------*
-*&amp;      Form  write_attributes
-*&amp;---------------------------------------------------------------------*
   METHOD write_attributes.
 
     DATA:
-      lr_descr TYPE REF TO cl_abap_structdescr,
-      lc_attr  TYPE string.
+      lr_descr TYPE REF TO cl_abap_structdescr.
     FIELD-SYMBOLS:
       &lt;c&gt;      LIKE LINE OF lr_descr-&gt;components,
       &lt;f&gt;      TYPE ANY.
@@ -1566,30 +1566,26 @@ CLASS ycl_generator IMPLEMENTATION.
     lr_descr ?= cl_abap_typedescr=&gt;describe_by_data( is_struc ).
 
     LOOP AT lr_descr-&gt;components ASSIGNING &lt;c&gt;.
-      CLEAR lc_attr.
       ASSIGN COMPONENT &lt;c&gt;-name OF STRUCTURE is_struc TO &lt;f&gt;.
-      lc_attr = write_attribute( ic_name = &lt;c&gt;-name i_field = &lt;f&gt; ).
-      CHECK NOT lc_attr IS INITIAL.
-      CONCATENATE ec_attr lc_attr INTO ec_attr SEPARATED BY space.
+      CALL METHOD write_attribute( ic_name = &lt;c&gt;-name i_field = &lt;f&gt; ).
     ENDLOOP.
 
   ENDMETHOD.                    &quot;write_attributes
 
-*&amp;---------------------------------------------------------------------*
-*&amp;      Form  write_attribute
-*&amp;---------------------------------------------------------------------*
+
   METHOD write_attribute.
 
     DATA:
       lc_name  TYPE string,
       lc_value TYPE string.
-*      li_len   TYPE i.
 
     lc_name = get_attribute_name( ic_name ).
     CHECK NOT lc_name IS INITIAL.
-  lc_value = get_attribute_value( ic_name = lc_name i_field = i_field ).
+    lc_value = get_attribute_value( ic_name = lc_name
+      i_field = i_field ).
     CHECK NOT lc_value IS INITIAL.
-    CONCATENATE lc_name &apos;=&apos; lc_value INTO ec_attribute.
+    CALL METHOD mr_current-&gt;set_attribute( name = lc_name
+      value = lc_value ).
 
   ENDMETHOD.                    &quot;write_attribute
 
@@ -1598,8 +1594,8 @@ CLASS ycl_generator IMPLEMENTATION.
 *&amp;---------------------------------------------------------------------*
   METHOD get_attribute_name.
 
-    IF get_tag( ) NE &apos;entry&apos;.
-      CHECK ic_name NE: &apos;DDLANGUAGE&apos;, &apos;SPRAS&apos;, &apos;LANGU&apos;,
+    IF mr_current-&gt;get_name( ) &lt;&gt; &apos;entry&apos;.
+      CHECK ic_name &lt;&gt;: &apos;DDLANGUAGE&apos;, &apos;SPRAS&apos;, &apos;LANGU&apos;,
                         &apos;INTLENGTH&apos;, &apos;EDITORDER&apos;, &apos;R3RELEASE&apos;, &apos;DISPID&apos;,
                         &apos;UUID&apos;.
     ENDIF.
@@ -1611,51 +1607,52 @@ CLASS ycl_generator IMPLEMENTATION.
     transl &apos;AS4USER&apos; &apos;changedby&apos;.
 
 
-    CASE get_tag( ).
+    CASE mr_current-&gt;get_name( ).
       WHEN &apos;package&apos; OR &apos;subpackage&apos;.
+        CHECK ic_name &lt;&gt;: &apos;INTSYS&apos;, &apos;CONSYS&apos;.
         transl &apos;DEVCLASS&apos; &apos;name&apos;.
         transl &apos;CTEXT&apos; &apos;description&apos;.
       WHEN &apos;class&apos; OR &apos;subclass&apos; OR &apos;superclass&apos;.
-        CHECK ic_name NE: &apos;LANGU&apos;, &apos;REFCLSNAME&apos;.
+        CHECK ic_name &lt;&gt;: &apos;LANGU&apos;, &apos;REFCLSNAME&apos;.
         transl &apos;CLSNAME&apos; &apos;name&apos;.
       WHEN &apos;attribute&apos;. &quot;of a class
-        CHECK ic_name NE: &apos;LENGTH&apos;, &apos;DECIMALS&apos;.
+        CHECK ic_name &lt;&gt;: &apos;LENGTH&apos;, &apos;DECIMALS&apos;.
 *        transl &apos;CMPNAME&apos; &apos;name&apos;.
 *        transl &apos;ATTDECLTYP&apos; &apos;scope&apos;.
       WHEN &apos;method&apos;. &quot;of a class
-        CHECK ic_name NE: &apos;PARAMETERS&apos;, &apos;EXCEPTIONS&apos;.
+        CHECK ic_name &lt;&gt;: &apos;PARAMETERS&apos;, &apos;EXCEPTIONS&apos;.
 *        CHECK ic_name NE: &apos;CLSNAME&apos;.
         transl &apos;CMPNAME&apos; &apos;name&apos;.
         transl &apos;MTDDECLTYP&apos; &apos;scope&apos;.
       WHEN &apos;parameter&apos;. &quot;of a function module or class
-        CHECK ic_name NE: &apos;POSITION&apos;, &apos;CLSNAME&apos;, &apos;CMPNAME&apos;, &apos;LENGTH&apos;,
+        CHECK ic_name &lt;&gt;: &apos;POSITION&apos;, &apos;CLSNAME&apos;, &apos;CMPNAME&apos;, &apos;LENGTH&apos;,
                           &apos;DECIMALS&apos;.
         transl &apos;SCONAME&apos; &apos;name&apos;.   &quot;class
         transl &apos;TABNAME&apos; &apos;type&apos;.
         transl &apos;PARAMTEXT&apos; &apos;description&apos;.
       WHEN &apos;event&apos;.
-        CHECK ic_name NE &apos;PARAMETERS&apos;.
+        CHECK ic_name &lt;&gt; &apos;PARAMETERS&apos;.
       WHEN &apos;dataelem&apos;.
         transl &apos;ROLLNAME&apos; &apos;name&apos;.
       WHEN &apos;domain&apos;.
         transl &apos;DOMNAME&apos; &apos;name&apos;.
       WHEN &apos;fixed-value&apos;. &quot;of domain
-        CHECK ic_name NE: &apos;DOMNAME&apos;, &apos;VALPOS&apos;.
+        CHECK ic_name &lt;&gt;: &apos;DOMNAME&apos;, &apos;VALPOS&apos;.
       WHEN &apos;enqueue-object&apos;.
         transl &apos;VIEWNAME&apos; &apos;name&apos;.
       WHEN &apos;base-table&apos;. &quot;of an enqueue object
-        CHECK ic_name NE &apos;VIEWNAME&apos;.
+        CHECK ic_name &lt;&gt; &apos;VIEWNAME&apos;.
         transl &apos;TABNAME&apos; &apos;type&apos;.
       WHEN &apos;lock-argument&apos;. &quot;of an enqueue object
-        CHECK ic_name NE &apos;VIEWNAME&apos;.
+        CHECK ic_name &lt;&gt; &apos;VIEWNAME&apos;.
       WHEN &apos;lock-parameter&apos;. &quot;of an enqueue object
-        CHECK ic_name NE &apos;VIEWNAME&apos;.
+        CHECK ic_name &lt;&gt; &apos;VIEWNAME&apos;.
       WHEN &apos;function-group&apos;.
-        CHECK ic_name NE &apos;DEVCLASS&apos;.
+        CHECK ic_name &lt;&gt; &apos;DEVCLASS&apos;.
         transl &apos;AREA&apos; &apos;name&apos;.
         transl &apos;AREAT&apos; &apos;description&apos;.
       WHEN &apos;function-module&apos;.
-        CHECK ic_name NE &apos;AREA&apos;.
+        CHECK ic_name &lt;&gt; &apos;AREA&apos;.
         transl &apos;FUNCNAME&apos; &apos;name&apos;.
         transl &apos;STEXT&apos; &apos;description&apos;.
       WHEN &apos;importing&apos; OR &apos;exporting&apos; OR &apos;changing&apos; OR &apos;tables&apos;.
@@ -1671,14 +1668,14 @@ CLASS ycl_generator IMPLEMENTATION.
         transl &apos;TABNAME&apos; &apos;name&apos;.
         transl &apos;ROLLNAME&apos; &apos;type&apos;.
       WHEN &apos;component&apos;. &quot;of a table or structure
-        CHECK ic_name NE: &apos;TABNAME&apos;, &apos;POSITION&apos;, &apos;OFFSET&apos;.
+        CHECK ic_name &lt;&gt;: &apos;TABNAME&apos;, &apos;POSITION&apos;, &apos;OFFSET&apos;.
         transl &apos;FIELDNAME&apos; &apos;name&apos;.
         transl &apos;ROLLNAME&apos; &apos;type&apos;.
       WHEN &apos;table-type&apos;.
         transl &apos;TYPENAME&apos; &apos;name&apos;.
         transl &apos;ROWTYPE&apos; &apos;type&apos;.
       WHEN &apos;key&apos;. &quot;of table-type.
-        CHECK ic_name NE &apos;TYPENAME&apos;.
+        CHECK ic_name &lt;&gt; &apos;TYPENAME&apos;.
 
     ENDCASE.
 
@@ -1696,26 +1693,26 @@ CLASS ycl_generator IMPLEMENTATION.
   METHOD get_attribute_value.
 
     DATA:
-      lc(100) TYPE c,
+      lc(100)    TYPE c,
       ls_address TYPE bapiaddr3,
-      lt_return TYPE bapiret2_t.
+      lt_return  TYPE bapiret2_t.
 
     WRITE i_field TO lc LEFT-JUSTIFIED.
 
     IF lc IS INITIAL. &quot;initial in character mode, i.e. lc is space
 
-      CHECK get_tag( ) EQ &apos;fixed-value&apos; OR
-            get_tag( ) EQ &apos;entry&apos;.
+      CHECK mr_current-&gt;get_name( ) = &apos;fixed-value&apos; OR
+            mr_current-&gt;get_name( ) = &apos;entry&apos;.
 
       ec_value = &apos;&quot; &quot;&apos;.
       EXIT.
 
-    ELSEIF lc EQ &apos;00.00.0000&apos;.
+    ELSEIF lc = &apos;00.00.0000&apos;.
 *     Ignore initial dates
       EXIT.
 
-    ELSEIF ic_name EQ &apos;author&apos; OR
-           ic_name EQ &apos;changedby&apos;.
+    ELSEIF ic_name = &apos;author&apos; OR
+           ic_name = &apos;changedby&apos;.
 
       CALL FUNCTION &apos;BAPI_USER_GET_DETAIL&apos;
         EXPORTING
@@ -1733,58 +1730,9 @@ CLASS ycl_generator IMPLEMENTATION.
 
     ENDIF.
 
-    ec_value = convert_entities( lc ).
-    CONCATENATE &apos;&quot;&apos; ec_value &apos;&quot;&apos; INTO ec_value.
-
+    ec_value = lc.
 
   ENDMETHOD.                    &quot;get_attribute_value
-
-
-  METHOD convert_entities.
-
-    ec_value = ic_value.
-
-    REPLACE ALL OCCURRENCES OF:
-* the ampersand must be replaced first, otherwise it will also be
-* replaced in following entity declarations (e.g. &gt; becomes &amp;amp;gt; ).
-      &apos;&amp;&apos;  IN ec_value WITH &apos;&amp;amp;&apos;,
-      &apos;&lt;&apos;  IN ec_value WITH &apos;&amp;lt;&apos;,
-      &apos;&gt;&apos;  IN ec_value WITH &apos;&amp;gt;&apos;,
-      &apos;&quot;&apos;  IN ec_value WITH &apos;&amp;quot;&apos;,
-      &apos;&apos;&apos;&apos; IN ec_value WITH &apos;&amp;apos;&apos;,
-      &apos;±&apos;  IN ec_value WITH &apos;&amp;#177;&apos;,
-      &apos;³&apos;  IN ec_value WITH &apos;&amp;#177;&apos;,
-      &apos;¶&apos;  IN ec_value WITH &apos;&amp;#182;&apos;,
-      &apos;¼&apos;  IN ec_value WITH &apos;&amp;#188;&apos;,
-      &apos;¿&apos;  IN ec_value WITH &apos;&amp;#191;&apos;,
-      &apos;Ä&apos;  IN ec_value WITH &apos;&amp;#196;&apos;,
-      &apos;Ö&apos;  IN ec_value WITH &apos;&amp;#214;&apos;,
-      &apos;Ü&apos;  IN ec_value WITH &apos;&amp;#220;&apos;,
-      &apos;ß&apos;  IN ec_value WITH &apos;&amp;#223;&apos;,
-      &apos;à&apos;  IN ec_value WITH &apos;&amp;#224;&apos;,
-      &apos;á&apos;  IN ec_value WITH &apos;&amp;#225;&apos;,
-      &apos;â&apos;  IN ec_value WITH &apos;&amp;#226;&apos;,
-      &apos;ã&apos;  IN ec_value WITH &apos;&amp;#227;&apos;,
-      &apos;ä&apos;  IN ec_value WITH &apos;&amp;#228;&apos;,
-      &apos;æ&apos;  IN ec_value WITH &apos;&amp;#230;&apos;,
-      &apos;ç&apos;  IN ec_value WITH &apos;&amp;#231;&apos;,
-      &apos;è&apos;  IN ec_value WITH &apos;&amp;#233;&apos;,
-      &apos;é&apos;  IN ec_value WITH &apos;&amp;#234;&apos;,
-      &apos;ê&apos;  IN ec_value WITH &apos;&amp;#235;&apos;,
-      &apos;ì&apos;  IN ec_value WITH &apos;&amp;#236;&apos;,
-      &apos;í&apos;  IN ec_value WITH &apos;&amp;#237;&apos;,
-      &apos;î&apos;  IN ec_value WITH &apos;&amp;#238;&apos;,
-      &apos;ñ&apos;  IN ec_value WITH &apos;&amp;#241;&apos;,
-      &apos;ó&apos;  IN ec_value WITH &apos;&amp;#243;&apos;,
-      &apos;ô&apos;  IN ec_value WITH &apos;&amp;#244;&apos;,
-      &apos;õ&apos;  IN ec_value WITH &apos;&amp;#245;&apos;,
-      &apos;ö&apos;  IN ec_value WITH &apos;&amp;#246;&apos;,
-      &apos;ù&apos;  IN ec_value WITH &apos;&amp;#249;&apos;,
-      &apos;ú&apos;  IN ec_value WITH &apos;&amp;#250;&apos;,
-      &apos;ü&apos;  IN ec_value WITH &apos;&amp;#252;&apos;.
-
-
-  ENDMETHOD.                    &quot;convert_entities
 
 
   METHOD get_superclass .
@@ -1807,14 +1755,14 @@ CLASS ycl_generator IMPLEMENTATION.
     CATCH SYSTEM-EXCEPTIONS move_cast_error = 1.
       lr_class ?= lr_descr.
     ENDCATCH.
-    CHECK sy-subrc EQ 0.
+    CHECK sy-subrc = 0.
 
     CALL METHOD lr_class-&gt;get_super_class_type
       RECEIVING
         p_descr_ref = lr_descr
       EXCEPTIONS
         OTHERS      = 1.
-    CHECK: sy-subrc     EQ 0,
+    CHECK: sy-subrc     = 0,
            NOT lr_descr IS INITIAL. &quot;no superclass
 
     ec_superclass = lr_descr-&gt;get_relative_name( ).
