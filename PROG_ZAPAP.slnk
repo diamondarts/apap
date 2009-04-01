@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20081107" VERN="000072" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20081107" STIME="162212" IDATE="20081107" ITIME="162212" UCCHECK="X">
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20090401" VERN="000089" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20090401" STIME="090028" IDATE="20090401" ITIME="090028" UCCHECK="X">
  <textPool>
   <language SPRAS="E">
    <textElement ID="I" KEY="REP" ENTRY="Repository objects" LENGTH="20 "/>
@@ -1044,11 +1044,14 @@ CLASS ycl_generator IMPLEMENTATION.
   METHOD process_documentation.
 
     DATA:
-      lt_tline  TYPE tlinetab,
-      lc_object TYPE dokhl-object,
-      lc_docu   TYPE string.
-    FIELD-SYMBOLS:
-      &lt;t&gt;       LIKE LINE OF lt_tline.
+      lt_tline       TYPE tlinetab,
+      lc_object      TYPE dokhl-object,
+      lt_html        TYPE htmltable,
+      ls_html        LIKE LINE OF lt_html,
+      ls_doku_header TYPE thead,
+      lr_doc         TYPE REF TO cl_xml_document,
+      lr_node        TYPE REF TO if_ixml_node,
+      lc_docu        TYPE string.
 
     lc_object = ic_name.
     CALL FUNCTION &apos;DOCU_GET&apos;
@@ -1057,62 +1060,36 @@ CLASS ycl_generator IMPLEMENTATION.
         langu  = mc_langu
         object = lc_object
         typ    = ic_type
+      IMPORTING
+        head   = ls_doku_header
       TABLES
         line   = lt_tline
       EXCEPTIONS
         OTHERS = 0.
     CHECK NOT lt_tline[] IS INITIAL.
 
-* Idea: Use CONVERT_ITF_TO_* here...
+    CALL FUNCTION &apos;CONVERT_ITF_TO_HTML&apos;
+      EXPORTING
+        i_header      = ls_doku_header
+        i_replace     = abap_true
+        i_html_header = abap_false
+      TABLES
+        t_itf_text    = lt_tline
+        t_html_text   = lt_html
+      EXCEPTIONS
+        OTHERS        = 1.
+    CHECK sy-subrc = 0.
 
-    LOOP AT lt_tline ASSIGNING &lt;t&gt;.
-      IF sy-tabix     EQ 1 AND
-       ( &lt;t&gt;-tdformat EQ space OR &lt;t&gt;-tdformat EQ &apos;=&apos; ).
-*       Don&apos;t know how the first line of documentation can have such
-*       a format, but it happens. So better change the format,
-*       otherwise we&apos;ll get a short dump &apos;field symbol not assigned&apos; in
-*       the following CASE statement.
-        &lt;t&gt;-tdformat = &apos;*&apos;.
-      ENDIF.
 
-      CASE &lt;t&gt;-tdformat.
-*        WHEN space.
-*          CONCATENATE &lt;d&gt; &lt;t&gt;-tdline INTO lc_docu SEPARATED BY space.
-        WHEN &apos;=&apos;.
-          CONCATENATE lc_docu &lt;t&gt;-tdline INTO lc_docu.
-        WHEN OTHERS.
-          CONCATENATE lc_docu &lt;t&gt;-tdline INTO lc_docu SEPARATED BY
-space.
-*          APPEND INITIAL LINE TO lt_docu ASSIGNING &lt;d&gt;.
-*          &lt;d&gt; = &lt;t&gt;-tdline.
-      ENDCASE.
-
+    LOOP AT lt_html INTO ls_html.
+      CONCATENATE lc_docu ls_html-tdline INTO lc_docu.
     ENDLOOP.
 
+    write_tag( ic_tag = &apos;documentation&apos; ib_end = abap_false ).
 
-    CALL METHOD write_tag
-      EXPORTING
-        ic_tag = &apos;documentation&apos;
-        ib_end = abap_false.
-*    LOOP AT lt_docu ASSIGNING &lt;d&gt;.
-*      REPLACE ALL OCCURRENCES OF &apos;&amp;VLINE&amp;&apos; IN &lt;d&gt; WITH &apos;|&apos;.
-*      IF &lt;d&gt; CP &apos;&amp;*&amp;&apos;.
-*        IF get_tag( ) NE &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
-*        SHIFT &lt;d&gt; LEFT DELETING LEADING &apos;&amp;&apos;.
-*        REPLACE &apos;&amp;&apos; IN &lt;d&gt; WITH space.
-*        TRANSLATE &lt;d&gt; TO LOWER CASE.                      &quot;#EC SYNTCHAR
-*        CALL METHOD write_tag
-*          EXPORTING
-*            ic_tag = &lt;d&gt;
-*            ib_end = abap_false.
-*      ELSE.
-*        &lt;d&gt; = convert_entities( &lt;d&gt; ).
-*        APPEND &lt;d&gt; TO mt_output REFERENCE INTO mr_output.
-*      ENDIF.
-*    ENDLOOP.
-    CALL METHOD mr_current-&gt;set_value( value = lc_docu ).
-*    IF get_tag( ) &lt;&gt; &apos;documentation&apos;. CALL METHOD end_tag. ENDIF.
-    CALL METHOD end_tag.
+    mr_current-&gt;set_value( value = lc_docu ).
+
+    end_tag( ).
 
 
   ENDMETHOD.                    &quot;process_documentation
@@ -1126,6 +1103,7 @@ space.
         id          TYPE doku_id,
         object      TYPE doku_obj,
       END OF ls_doku,
+      lr_desc       TYPE REF TO cl_abap_typedescr,
       lr_descr      TYPE REF TO cl_abap_objectdescr,
       ls_clifkey    TYPE seoclskey,
       lt_clifkey    TYPE TABLE OF seoclskey,
@@ -1156,7 +1134,18 @@ space.
       &lt;att&gt;         LIKE LINE OF lr_descr-&gt;attributes,
       &lt;mth&gt;         LIKE LINE OF lr_descr-&gt;methods.
 
-    lr_descr ?= cl_abap_typedescr=&gt;describe_by_name( ic_name ).
+*   If a repository object has been deleted and the request has not
+*   been released yet, the TADIR entry still exists. Therefore we
+*   are ignoring the exception here
+    CALL METHOD cl_abap_typedescr=&gt;describe_by_name
+      EXPORTING
+        p_name      = ic_name
+      RECEIVING
+        p_descr_ref = lr_desc
+      EXCEPTIONS
+        OTHERS      = 1.
+    CHECK sy-subrc = 0.
+    lr_descr ?= lr_desc.
 
     CALL METHOD write_table
       EXPORTING
@@ -1250,7 +1239,12 @@ space.
 
 
     LOOP AT lr_descr-&gt;methods ASSIGNING &lt;mth&gt;.
-      CLEAR: ls_meth, ls_relkey.
+
+      CLEAR:
+        ls_meth,
+        ls_relkey,
+        ls_cmpkey.
+
       IF NOT &lt;mth&gt;-alias_for IS INITIAL.
 *       ...
       ELSEIF &lt;mth&gt;-is_inherited  EQ abap_true OR
