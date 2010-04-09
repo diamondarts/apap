@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20090401" VERN="000089" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20090401" STIME="090028" IDATE="20090401" ITIME="090028" UCCHECK="X">
+<PROG NAME="ZAPAP" VARCL="X" SUBC="1" CNAM="GERTH" CDAT="20070426" UNAM="GERTH" UDAT="20100409" VERN="000095" RMAND="000" RLOAD="E" FIXPT="X" SDATE="20100409" STIME="114325" IDATE="20100409" ITIME="114325" UCCHECK="X">
  <textPool>
   <language SPRAS="E">
    <textElement ID="I" KEY="REP" ENTRY="Repository objects" LENGTH="20 "/>
    <textElement ID="R" ENTRY="Generate an XML file of repository objects" LENGTH="42 "/>
+   <textElement ID="S" KEY="PB_DISPL" ENTRY="        Display XML" LENGTH="19 "/>
    <textElement ID="S" KEY="P_APPL" ENTRY="        Application name" LENGTH="24 "/>
    <textElement ID="S" KEY="P_CLAS" ENTRY="        Class" LENGTH="13 "/>
    <textElement ID="S" KEY="P_DOMA" ENTRY="        Domain" LENGTH="14 "/>
@@ -186,7 +187,10 @@ CLASS ycl_generator DEFINITION.
         IMPORTING ic_name TYPE c,
       get_superclass
         IMPORTING ic_classname TYPE any
-        RETURNING value(ec_superclass) TYPE seoclsname.
+        RETURNING value(ec_superclass) TYPE seoclsname,
+      check_class_syntax
+        IMPORTING is_class TYPE seoclskey
+        RETURNING value(eb_check_succeeded) TYPE abap_bool.
 ENDCLASS.                    &quot;ycl_generator DEFINITION
 
 DATA gc_devc   TYPE tdevc-devclass.
@@ -202,7 +206,9 @@ PARAMETERS:
 * text: &apos;Language&apos;
   p_langu      TYPE sy-langu  DEFAULT sy-langu,
 * text: &apos;Download to&apos;
-  p_file       TYPE rlgrap-filename.
+  p_file       TYPE rlgrap-filename,
+* text: &apos;Display XML&apos;
+  pb_displ     TYPE abap_bool AS CHECKBOX.
 
 * Add all supported repository objects here
 SELECTION-SCREEN BEGIN OF BLOCK bl1 WITH FRAME TITLE text-rep.
@@ -278,45 +284,19 @@ AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
 START-OF-SELECTION.
 
 * Add all supported repository objects here
-  gs_selopt-sign   = &apos;I&apos;.
-  gs_selopt-option = &apos;EQ&apos;.
-  IF p_tabl EQ abap_true.
-    gs_selopt-low    = &apos;TABL&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_ttyp EQ abap_true.
-    gs_selopt-low    = &apos;TTYP&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_dtel EQ abap_true.
-    gs_selopt-low    = &apos;DTEL&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_doma EQ abap_true.
-    gs_selopt-low    = &apos;DOMA&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_enqu EQ abap_true.
-    gs_selopt-low    = &apos;ENQU&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_clas EQ abap_true.
-    gs_selopt-low    = &apos;CLAS&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_intf EQ abap_true.
-    gs_selopt-low    = &apos;INTF&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
-  IF p_fugr EQ abap_true.
-    gs_selopt-low    = &apos;FUGR&apos;.
-    APPEND gs_selopt TO gt_selopt.
-  ENDIF.
+  PERFORM add_selopt USING:
+    p_tabl &apos;TABL&apos;,
+    p_ttyp &apos;TTYP&apos;,
+    p_dtel &apos;DTEL&apos;,
+    p_doma &apos;DOMA&apos;,
+    p_enqu &apos;ENQU&apos;,
+    p_clas &apos;CLAS&apos;,
+    p_intf &apos;INTF&apos;,
+    p_fugr &apos;FUGR&apos;.
   IF gt_selopt IS INITIAL.
 *   Add a dummy select option. Otherwise the table is empty, which would
 *   result in the selection of ALL possible repository objects.
-    gs_selopt-low    = space.
-    APPEND gs_selopt TO gt_selopt.
+    PERFORM add_selopt USING abap_true space.
   ENDIF.
 
 
@@ -334,10 +314,25 @@ START-OF-SELECTION.
 
 
 *&amp;---------------------------------------------------------------------*
+*&amp;      Form  add_selopt
+*&amp;---------------------------------------------------------------------*
+FORM add_selopt
+  USING
+    ib_add         TYPE abap_bool
+    ic_object_type TYPE tadir-object.
+
+  CHECK ib_add = abap_true.
+
+  gs_selopt-sign   = &apos;I&apos;.
+  gs_selopt-option = &apos;EQ&apos;.
+  gs_selopt-low    = ic_object_type.
+  APPEND gs_selopt TO gt_selopt.
+
+ENDFORM.                    &quot;add_selopt
+
+*&amp;---------------------------------------------------------------------*
 *&amp;      Form  display_and_download
 *&amp;---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
 FORM display_and_download.
 
   DATA: lr_xml_doc TYPE REF TO cl_xml_document,
@@ -356,7 +351,9 @@ FORM display_and_download.
     CALL METHOD lr_xml_doc-&gt;export_to_file( filename = p_file ).
   ENDIF.
 
-  CALL METHOD lr_xml_doc-&gt;display( ).
+  IF pb_displ = abap_true.
+    CALL METHOD lr_xml_doc-&gt;display( ).
+  ENDIF.
 
 ENDFORM.                    &quot;display_and_download
 
@@ -427,6 +424,8 @@ CLASS ycl_generator IMPLEMENTATION.
       lt_subclasses TYPE seor_inheritance_keys.
 
     ls_clskey-clsname = ic_name.
+    CHECK check_class_syntax( ls_clskey ) = abap_true.
+
     CALL FUNCTION &apos;SEO_CLASS_READ&apos;
       EXPORTING
         clskey          = ls_clskey
@@ -486,6 +485,7 @@ CLASS ycl_generator IMPLEMENTATION.
       ls_tadir    TYPE tadir,
       ls_tdevc    TYPE tdevc,
       lc_devclass TYPE tdevc-devclass.
+    FIELD-SYMBOLS &lt;lb_deleted&gt; TYPE c.
 
 
     CALL FUNCTION &apos;TR_DEVCLASS_GET&apos;
@@ -533,6 +533,11 @@ CLASS ycl_generator IMPLEMENTATION.
              INTO ls_tadir
             WHERE object   IN mt_selopt
               AND devclass EQ ic_name.
+
+*     Seems field TADIR-DELFLAG was introduced with SAP 6.0
+      ASSIGN COMPONENT &apos;DELFLAG&apos; OF STRUCTURE ls_tadir TO &lt;lb_deleted&gt;.
+      CHECK sy-subrc &lt;&gt; 0 OR &lt;lb_deleted&gt; = abap_false.
+
       CASE ls_tadir-object.
         WHEN &apos;CLAS&apos;.
           CALL METHOD process_clas
@@ -1049,8 +1054,6 @@ CLASS ycl_generator IMPLEMENTATION.
       lt_html        TYPE htmltable,
       ls_html        LIKE LINE OF lt_html,
       ls_doku_header TYPE thead,
-      lr_doc         TYPE REF TO cl_xml_document,
-      lr_node        TYPE REF TO if_ixml_node,
       lc_docu        TYPE string.
 
     lc_object = ic_name.
@@ -1762,6 +1765,38 @@ CLASS ycl_generator IMPLEMENTATION.
     ec_superclass = lr_descr-&gt;get_relative_name( ).
 
   ENDMETHOD.                    &quot;GET_SUPERCLASS
+
+  METHOD check_class_syntax.
+
+    DATA:
+      lr_naming          TYPE REF TO if_oo_clif_incl_naming,
+      lt_source          TYPE STANDARD TABLE OF edpline,
+      lc_message         TYPE text240,                      &quot;#EC NEEDED
+      li_line            TYPE i,                            &quot;#EC NEEDED
+      lc_word            TYPE edpline.                      &quot;#EC NEEDED
+
+    CALL METHOD cl_oo_include_naming=&gt;get_instance_by_cifkey
+      EXPORTING
+        cifkey = is_class
+      RECEIVING
+        cifref = lr_naming
+      EXCEPTIONS
+        OTHERS = 1.
+    CHECK sy-subrc = 0.
+
+    READ REPORT lr_naming-&gt;pool INTO lt_source.
+    CHECK sy-subrc = 0.
+
+    SYNTAX-CHECK FOR lt_source
+      MESSAGE lc_message
+      LINE li_line
+      WORD lc_word
+      PROGRAM lr_naming-&gt;pool.
+    CHECK sy-subrc = 0.
+
+    eb_check_succeeded = abap_true.
+
+  ENDMETHOD.                    &quot;check_class_syntax
 
 ENDCLASS.                    &quot;ycl_generator IMPLEMENTATION</source>
 </PROG>
