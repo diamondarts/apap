@@ -8,6 +8,6 @@ In the first stage, the generated documentation features the display of various 
 
 Future stages may include the generation of PDF files.
 
-Check out the [overview](https://github.com/diamondarts/apap/wiki/Overview) or download the generated [sample documentation](https://github.com/diamondarts/apap/blob/master/downloads/apap-0.2.zip).
+Check out the [overview](https://github.com/diamondarts/apap/wiki) or download the generated [sample documentation](https://github.com/diamondarts/apap/blob/master/downloads/sample_cats2-0.2.zip).
 
 If you have questions about the project, please post them at [this article in the SAP Developer Network code gallery](https://wiki.sdn.sap.com/wiki/x/X4Y).
